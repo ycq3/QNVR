@@ -14,11 +14,13 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.util.Range
 import android.util.Size
+import android.view.Surface
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.max
 import kotlin.math.min
+import io.sentry.Sentry
 
 class CameraController(private val context: Context) {
   private val manager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
@@ -27,12 +29,13 @@ class CameraController(private val context: Context) {
   private var cameraDevice: CameraDevice? = null
   private var session: CameraCaptureSession? = null
   private var imageReader: ImageReader? = null
-  private var encoderSurface: android.view.Surface? = null
+  private var encoderSurface: Surface? = null
   private var cameraId: String = "0"
   private var zoom = 1.0f
   private var watermark = true
   private var fps = 30
   private val latestPreviewJpeg = AtomicReference<ByteArray?>(null)
+  private var sessionTargets: List<Surface> = emptyList()
 
   fun setEncoderSurface(surface: android.view.Surface) {
     encoderSurface = surface
@@ -59,7 +62,7 @@ class CameraController(private val context: Context) {
         createSession()
       }
       override fun onDisconnected(device: CameraDevice) { device.close() }
-      override fun onError(device: CameraDevice, error: Int) { device.close() }
+      override fun onError(device: CameraDevice, error: Int) { Sentry.captureMessage("Camera error: $error"); device.close() }
     }, handler)
   }
 
@@ -71,8 +74,11 @@ class CameraController(private val context: Context) {
   }
 
   private fun setupReaders() {
-    val size = Size(1280, 720)
-    imageReader = ImageReader.newInstance(size.width, size.height, android.graphics.ImageFormat.YUV_420_888, 3)
+    val chars = manager.getCameraCharacteristics(cameraId)
+    val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+    val supported = map?.getOutputSizes(android.graphics.ImageFormat.YUV_420_888) ?: arrayOf(Size(640, 480))
+    val preferred = supported.firstOrNull { it.width == 1280 && it.height == 720 } ?: supported.maxBy { it.width * it.height }
+    imageReader = ImageReader.newInstance(preferred.width, preferred.height, android.graphics.ImageFormat.YUV_420_888, 3)
     imageReader!!.setOnImageAvailableListener({ r ->
       val img = r.acquireLatestImage() ?: return@setOnImageAvailableListener
       val data = yuvToJpeg(img)
@@ -84,22 +90,26 @@ class CameraController(private val context: Context) {
 
   private fun createSession() {
     val device = cameraDevice ?: return
-    val targets = mutableListOf<android.view.Surface>()
+    val targets = mutableListOf<Surface>()
     imageReader?.surface?.let { targets.add(it) }
     encoderSurface?.let { targets.add(it) }
-    device.createCaptureSession(targets, object : CameraCaptureSession.StateCallback() {
+    sessionTargets = targets.toList()
+    device.createCaptureSession(sessionTargets, object : CameraCaptureSession.StateCallback() {
       override fun onConfigured(s: CameraCaptureSession) {
         session = s
         val builder = device.createCaptureRequest(CameraDevice.TEMPLATE_RECORD)
-        imageReader?.surface?.let { builder.addTarget(it) }
-        encoderSurface?.let { builder.addTarget(it) }
+        for (surf in sessionTargets) builder.addTarget(surf)
         builder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, Range(fps, fps))
         builder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO)
         builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
         applyZoom(builder)
-        s.setRepeatingRequest(builder.build(), null, handler)
+        try {
+          s.setRepeatingRequest(builder.build(), null, handler)
+        } catch (e: Exception) {
+          io.sentry.Sentry.captureException(e)
+        }
       }
-      override fun onConfigureFailed(s: CameraCaptureSession) {}
+      override fun onConfigureFailed(s: CameraCaptureSession) { io.sentry.Sentry.captureMessage("Camera configure failed") }
     }, handler)
   }
 
@@ -112,8 +122,7 @@ class CameraController(private val context: Context) {
     val device = cameraDevice ?: return
     val s = session ?: return
     val builder = device.createCaptureRequest(CameraDevice.TEMPLATE_RECORD)
-    imageReader?.surface?.let { builder.addTarget(it) }
-    encoderSurface?.let { builder.addTarget(it) }
+    for (surf in sessionTargets) builder.addTarget(surf)
     builder.set(CaptureRequest.FLASH_MODE, if (on) CaptureRequest.FLASH_MODE_TORCH else CaptureRequest.FLASH_MODE_OFF)
     builder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, Range(fps, fps))
     builder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO)

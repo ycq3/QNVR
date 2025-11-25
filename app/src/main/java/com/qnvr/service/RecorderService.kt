@@ -1,15 +1,18 @@
 package com.qnvr.service
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import androidx.core.content.ContextCompat
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
 import com.qnvr.MainActivity
@@ -17,6 +20,7 @@ import com.qnvr.camera.CameraController
 import com.qnvr.preview.MjpegStreamer
 import com.qnvr.stream.RtspServerWrapper
 import com.qnvr.web.HttpServer
+import io.sentry.Sentry
 
 class RecorderService : LifecycleService() {
   private lateinit var wakeLock: PowerManager.WakeLock
@@ -36,10 +40,19 @@ class RecorderService : LifecycleService() {
     httpServer = HttpServer(this, camera, mjpegStreamer)
     rtspServer = RtspServerWrapper(this, camera)
 
-    httpServer.begin()
-    mjpegStreamer.start()
-    camera.start()
-    rtspServer.start()
+    try { httpServer.begin() } catch (e: Exception) { Sentry.captureException(e) }
+    try { mjpegStreamer.start() } catch (e: Exception) { Sentry.captureException(e) }
+
+    val camPerm = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+    if (camPerm) {
+      try { 
+        camera.start() 
+        
+      } catch (e: Exception) { Sentry.captureException(e) }
+      try { rtspServer.start() } catch (e: Exception) { Sentry.captureException(e) }
+    } else {
+      Sentry.captureMessage("Camera permission missing; skipping camera/rtsp start")
+    }
 
     startForeground(1, buildNotification())
   }

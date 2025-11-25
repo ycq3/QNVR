@@ -8,6 +8,7 @@ import java.io.OutputStream
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.atomic.AtomicBoolean
+import io.sentry.Sentry
 
 class RtspServerWrapper(private val ctx: Context, private val camera: CameraController) {
   private var server: ServerSocket? = null
@@ -93,12 +94,14 @@ class RtspServerWrapper(private val ctx: Context, private val camera: CameraCont
   private fun streamLoop(out: OutputStream, channel: Int) {
     val sender = RtpH264Sender(out)
     while (true) {
-      val frame = encoder.poll() ?: continue
-      val nals = splitAnnexB(frame.data)
-      var ts90k = ((frame.timeUs / 1000L) * 90L).toInt()
-      for (nal in nals) {
-        val type = nal[0].toInt() and 0x1F
-        sender.sendNal(nal, ts90k, channel)
+      try {
+        val frame = encoder.poll() ?: continue
+        val nals = splitAnnexB(frame.data)
+        val ts90k = ((frame.timeUs / 1000L) * 90L).toInt()
+        for (nal in nals) sender.sendNal(nal, ts90k, channel)
+      } catch (e: Exception) {
+        Sentry.captureException(e)
+        break
       }
     }
   }

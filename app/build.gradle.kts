@@ -9,6 +9,10 @@ android {
   namespace = "com.qnvr"
   compileSdk = 34
 
+  val props = Properties()
+  val lp = rootProject.file("local.properties")
+  if (lp.exists()) props.load(lp.inputStream())
+
   defaultConfig {
     applicationId = "com.pipiqiang.qnvr"
     minSdk = 24
@@ -16,11 +20,9 @@ android {
     versionCode = 1
     versionName = "0.1.0"
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    val dsn = props.getProperty("sentryDsn") ?: System.getenv("SENTRY_DSN") ?: ""
+    buildConfigField("String", "SENTRY_DSN", "\"$dsn\"")
   }
-
-  val props = Properties()
-  val lp = rootProject.file("local.properties")
-  if (lp.exists()) props.load(lp.inputStream())
 
   signingConfigs {
     create("release") {
@@ -59,6 +61,10 @@ android {
     jvmTarget = "17"
   }
 
+  buildFeatures {
+    buildConfig = true
+  }
+
   packaging {
     resources {
       excludes += 
@@ -82,4 +88,6 @@ dependencies {
   implementation("androidx.camera:camera-lifecycle:1.3.4")
 
   implementation(kotlin("stdlib"))
+
+  implementation("io.sentry:sentry-android:8.27.0")
 }

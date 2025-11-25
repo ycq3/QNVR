@@ -35,13 +35,15 @@ class HttpServer(ctx: Context, private val camera: CameraController, private val
     val pis = java.io.PipedInputStream(pos)
     Thread {
       while (true) {
-        val img = mjpeg.nextFrame() ?: continue
-        val header = "--$boundary\r\nContent-Type: image/jpeg\r\nContent-Length: ${img.size}\r\n\r\n"
-        pos.write(header.toByteArray())
-        pos.write(img)
-        pos.write("\r\n".toByteArray())
-        pos.flush()
-        Thread.sleep(100)
+        try {
+          val img = mjpeg.nextFrame() ?: continue
+          val header = "--$boundary\r\nContent-Type: image/jpeg\r\nContent-Length: ${img.size}\r\n\r\n"
+          pos.write(header.toByteArray())
+          pos.write(img)
+          pos.write("\r\n".toByteArray())
+          pos.flush()
+          Thread.sleep(100)
+        } catch (_: Exception) {}
       }
     }.start()
     val res = newChunkedResponse(Status.OK, "multipart/x-mixed-replace; boundary=$boundary", pis)
