@@ -46,7 +46,12 @@ class H264Encoder(private val width: Int, private val height: Int, private val f
   private fun drainLoop() {
     val info = MediaCodec.BufferInfo()
     while (true) {
-      val index = codec.dequeueOutputBuffer(info, 10000)
+      val index = try {
+        codec.dequeueOutputBuffer(info, 10000)
+      } catch (e: IllegalStateException) {
+        // 编码器状态异常，结束循环
+        break
+      }
       if (index >= 0) {
         val buf = codec.getOutputBuffer(index) ?: continue
         val data = ByteArray(info.size)

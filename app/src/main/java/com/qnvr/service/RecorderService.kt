@@ -20,14 +20,17 @@ import com.qnvr.camera.CameraController
 import com.qnvr.preview.MjpegStreamer
 import com.qnvr.stream.RtspServerWrapper
 import com.qnvr.web.HttpServer
+import com.qnvr.config.ConfigStore
+import com.qnvr.config.ConfigApplier
 import io.sentry.Sentry
 
-class RecorderService : LifecycleService() {
+class RecorderService : LifecycleService(), ConfigApplier {
   private lateinit var wakeLock: PowerManager.WakeLock
   private lateinit var camera: CameraController
   private lateinit var httpServer: HttpServer
   private lateinit var mjpegStreamer: MjpegStreamer
   private lateinit var rtspServer: RtspServerWrapper
+  private lateinit var cfg: ConfigStore
 
   override fun onCreate() {
     super.onCreate()
@@ -35,10 +38,16 @@ class RecorderService : LifecycleService() {
     wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "QNVR:Recorder")
     wakeLock.acquire()
 
+    cfg = ConfigStore(this)
     camera = CameraController(this)
     mjpegStreamer = MjpegStreamer(camera)
-    httpServer = HttpServer(this, camera, mjpegStreamer)
-    rtspServer = RtspServerWrapper(this, camera)
+    httpServer = HttpServer(this, camera, mjpegStreamer, cfg, this)
+    rtspServer = RtspServerWrapper(this, camera, cfg.getPort(), cfg.getUsername(), cfg.getPassword(), cfg.getWidth(), cfg.getHeight(), 30, cfg.getBitrate())
+
+    camera.setWatermarkEnabled(true)
+    camera.setZoom(1.0f)
+    camera.setDeviceName(cfg.getDeviceName())
+    camera.setShowDeviceName(cfg.isShowDeviceName())
 
     try { httpServer.begin() } catch (e: Exception) { Sentry.captureException(e) }
     try { mjpegStreamer.start() } catch (e: Exception) { Sentry.captureException(e) }
@@ -90,4 +99,17 @@ class RecorderService : LifecycleService() {
   override fun onBind(intent: Intent): IBinder? {
     return super.onBind(intent)
   }
+
+  override fun applyPort(port: Int) {
+    try { rtspServer.stop() } catch (_: Exception) {}
+    try { rtspServer = RtspServerWrapper(this, camera, port, cfg.getUsername(), cfg.getPassword(), cfg.getWidth(), cfg.getHeight(), 30, cfg.getBitrate()); rtspServer.start() } catch (e: Exception) { Sentry.captureException(e) }
+  }
+
+  override fun applyEncoder(width: Int, height: Int, bitrate: Int) {
+    try { rtspServer.updateEncoder(width, height, 30, bitrate) } catch (e: Exception) { Sentry.captureException(e) }
+  }
+
+  override fun applyDeviceName(name: String) { try { camera.setDeviceName(name) } catch (_: Exception) {} }
+  override fun applyShowDeviceName(show: Boolean) { try { camera.setShowDeviceName(show) } catch (_: Exception) {} }
+  override fun applyCredentials(username: String, password: String) { try { rtspServer.updateCredentials(username, password) } catch (_: Exception) {} }
 }

@@ -10,16 +10,20 @@ import java.net.Socket
 import java.util.concurrent.atomic.AtomicBoolean
 import io.sentry.Sentry
 
-class RtspServerWrapper(private val ctx: Context, private val camera: CameraController) {
+class RtspServerWrapper(private val ctx: Context, private val camera: CameraController, private var port: Int, private var username: String, private var password: String, width: Int, height: Int, fps: Int, bitrate: Int) {
   private var server: ServerSocket? = null
   private val running = AtomicBoolean(false)
   private lateinit var encoder: H264Encoder
+  private var width = width
+  private var height = height
+  private var fps = fps
+  private var bitrate = bitrate
 
   fun start() {
-    encoder = H264Encoder(1280, 720, 30, 2_000_000)
+    encoder = H264Encoder(width, height, fps, bitrate)
     encoder.start()
     camera.setEncoderSurface(encoder.getInputSurface())
-    server = ServerSocket(8554)
+    server = ServerSocket(port)
     running.set(true)
     Thread { acceptLoop() }.start()
   }
@@ -58,6 +62,10 @@ class RtspServerWrapper(private val ctx: Context, private val camera: CameraCont
         if (idx > 0) headers[line.substring(0, idx).trim()] = line.substring(idx + 1).trim()
       }
       cseq = headers["CSeq"]?.toIntOrNull() ?: (cseq + 1)
+      if (!checkAuth(headers)) {
+        writeRtsp(out, cseq, StatusLine.Unauthorized, listOf("WWW-Authenticate: Basic realm=\"QNVR\""))
+        continue
+      }
       when (method) {
         "OPTIONS" -> {
           writeRtsp(out, cseq, StatusLine.OK, listOf("Public: OPTIONS, DESCRIBE, SETUP, TEARDOWN, PLAY"))
@@ -65,7 +73,7 @@ class RtspServerWrapper(private val ctx: Context, private val camera: CameraCont
         "DESCRIBE" -> {
           if (spspps == null) spspps = encoder.getSpsPps()
           val sdp = buildSdp(spspps?.first, spspps?.second)
-          writeRtsp(out, cseq, StatusLine.OK, listOf("Content-Base: rtsp://0.0.0.0:8554/live/", "Content-Type: application/sdp"), sdp)
+          writeRtsp(out, cseq, StatusLine.OK, listOf("Content-Base: rtsp://0.0.0.0:${port}/live/", "Content-Type: application/sdp"), sdp)
         }
         "SETUP" -> {
           val transport = headers["Transport"] ?: ""
@@ -120,7 +128,7 @@ class RtspServerWrapper(private val ctx: Context, private val camera: CameraCont
     out.flush()
   }
 
-  private enum class StatusLine(val code: Int, val text: String) { OK(200, "OK"), NotAllowed(405, "Method Not Allowed") }
+  private enum class StatusLine(val code: Int, val text: String) { OK(200, "OK"), NotAllowed(405, "Method Not Allowed"), Unauthorized(401, "Unauthorized") }
 
   private fun buildSdp(sps: ByteArray?, pps: ByteArray?): String {
     val spsB64 = if (sps != null) android.util.Base64.encodeToString(sps, android.util.Base64.NO_WRAP) else ""
@@ -150,5 +158,24 @@ class RtspServerWrapper(private val ctx: Context, private val camera: CameraCont
       } else i++
     }
     return out
+  }
+
+  fun updateEncoder(w: Int, h: Int, f: Int, b: Int) {
+    width = w; height = h; fps = f; bitrate = b
+    try { encoder.stop() } catch (_: Exception) {}
+    encoder = H264Encoder(width, height, fps, bitrate)
+    encoder.start()
+    camera.setEncoderSurface(encoder.getInputSurface())
+  }
+
+  fun updateCredentials(u: String, p: String) { username = u; password = p }
+
+  private fun checkAuth(headers: Map<String, String>): Boolean {
+    if (password.isEmpty()) return true
+    val auth = headers["Authorization"] ?: return false
+    if (!auth.startsWith("Basic ")) return false
+    val b64 = auth.substring(6)
+    val decoded = String(android.util.Base64.decode(b64, android.util.Base64.DEFAULT))
+    return decoded == "$username:$password"
   }
 }

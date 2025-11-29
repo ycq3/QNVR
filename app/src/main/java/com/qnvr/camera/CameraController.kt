@@ -33,6 +33,8 @@ class CameraController(private val context: Context) {
   private var cameraId: String = "0"
   private var zoom = 1.0f
   private var watermark = true
+  private var deviceName = ""
+  private var showDeviceName = false
   private var fps = 30
   private val latestPreviewJpeg = AtomicReference<ByteArray?>(null)
   private var sessionTargets: List<Surface> = emptyList()
@@ -139,6 +141,8 @@ class CameraController(private val context: Context) {
   fun setWatermarkEnabled(enabled: Boolean) {
     watermark = enabled
   }
+  fun setDeviceName(name: String) { deviceName = name }
+  fun setShowDeviceName(show: Boolean) { showDeviceName = show }
 
   fun getLatestJpeg(): ByteArray? = latestPreviewJpeg.get()
 
@@ -215,6 +219,9 @@ class CameraController(private val context: Context) {
     p.isAntiAlias = true
     val text = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(java.util.Date())
     c.drawText(text, 20f, mutable.height - 40f, p)
+    if (showDeviceName && deviceName.isNotEmpty()) {
+      c.drawText(deviceName, 20f, 40f, p)
+    }
     val out = ByteArrayOutputStream()
     mutable.compress(Bitmap.CompressFormat.JPEG, 70, out)
     return out.toByteArray()
