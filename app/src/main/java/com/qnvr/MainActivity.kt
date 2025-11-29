@@ -6,12 +6,16 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.widget.Button
+import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.qnvr.service.RecorderService
 import io.sentry.Sentry
+import java.net.InetAddress
+import java.net.NetworkInterface
+import java.util.*
 
 class MainActivity : ComponentActivity() {
   private val requestPermissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
@@ -41,9 +45,55 @@ class MainActivity : ComponentActivity() {
 
     val start = findViewById<Button>(R.id.btnStart)
     val stop = findViewById<Button>(R.id.btnStop)
+    val statusText = findViewById<TextView>(R.id.tvStatus)
+
+    // 显示IP地址和端口信息
+    displayIpAddressAndPort(statusText)
 
     start.setOnClickListener { ensurePermissionsAndStart() }
     stop.setOnClickListener { stopService() }
+  }
+
+  private fun displayIpAddressAndPort(textView: TextView) {
+    Thread {
+      try {
+        val ipAddress = getIpAddress()
+        val port = 18554 // 默认RTSP端口
+        val webPort = 8080 // 默认Web端口
+        
+        runOnUiThread {
+          textView.text = "RTSP地址: rtsp://$ipAddress:$port/live\nWeb界面: http://$ipAddress:$webPort/"
+        }
+      } catch (e: Exception) {
+        runOnUiThread {
+          textView.text = "无法获取IP地址信息"
+        }
+      }
+    }.start()
+  }
+
+  private fun getIpAddress(): String {
+    try {
+      val interfaces: Enumeration<NetworkInterface> = NetworkInterface.getNetworkInterfaces()
+      while (interfaces.hasMoreElements()) {
+        val networkInterface: NetworkInterface = interfaces.nextElement()
+        if (networkInterface.isLoopback || !networkInterface.isUp) {
+          continue
+        }
+        
+        val addresses: Enumeration<InetAddress> = networkInterface.inetAddresses
+        while (addresses.hasMoreElements()) {
+          val inetAddress: InetAddress = addresses.nextElement()
+          val hostAddress = inetAddress.hostAddress
+          if (hostAddress != null && !inetAddress.isLoopbackAddress && hostAddress.indexOf(':') == -1) {
+            return hostAddress
+          }
+        }
+      }
+    } catch (e: Exception) {
+      // 忽略异常
+    }
+    return "127.0.0.1"
   }
 
   private fun ensurePermissionsAndStart() {

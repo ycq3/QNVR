@@ -22,6 +22,7 @@ class HttpServer(ctx: Context, private val camera: CameraController, private val
     if (uri == "/api/status") return serveStatus(session)
     if (uri == "/api/config" && session.method == Method.GET) return getConfig(session)
     if (uri == "/api/config" && session.method == Method.POST) return handleConfig(session)
+    if (uri == "/api/encoders" && session.method == Method.GET) return getEncoders(session)  // 新增：获取编码器列表
     return newFixedLengthResponse(Status.NOT_FOUND, "text/plain", "404")
   }
 
@@ -85,6 +86,15 @@ class HttpServer(ctx: Context, private val camera: CameraController, private val
     if (json.has("username") || json.has("password")) { val u = json.optString("username", cfg.getUsername()); val p = json.optString("password", cfg.getPassword()); cfg.setCredentials(u,p); applier.applyCredentials(u,p) }
     if (json.has("deviceName")) { val n = json.getString("deviceName"); cfg.setDeviceName(n); applier.applyDeviceName(n) }
     if (json.has("showDeviceName")) { val s = json.getBoolean("showDeviceName"); cfg.setShowDeviceName(s); applier.applyShowDeviceName(s) }
+    // 编码器配置
+    if (json.has("useSoftwareEncoder")) { val useSw = json.getBoolean("useSoftwareEncoder"); cfg.setUseSoftwareEncoder(useSw); applier.applyEncoder(cfg.getWidth(), cfg.getHeight(), cfg.getBitrate()) }
+    // 新增：处理编码器名称和MIME类型
+    if (json.has("encoderName")) { 
+      val encName = json.optString("encoderName", "")
+      cfg.setEncoderName(if (encName.isNotEmpty()) encName else null)
+      applier.applyEncoder(cfg.getWidth(), cfg.getHeight(), cfg.getBitrate()) 
+    }
+    if (json.has("mimeType")) { val mimeType = json.getString("mimeType"); cfg.setMimeType(mimeType); applier.applyEncoder(cfg.getWidth(), cfg.getHeight(), cfg.getBitrate()) }
     return newFixedLengthResponse(Status.OK, "application/json", "{}")
   }
 
@@ -100,8 +110,30 @@ class HttpServer(ctx: Context, private val camera: CameraController, private val
     json.put("height", cfg.getHeight())
     json.put("deviceName", cfg.getDeviceName())
     json.put("showDeviceName", cfg.isShowDeviceName())
+    // 编码器配置
+    json.put("useSoftwareEncoder", cfg.getUseSoftwareEncoder())
+    // 新增：返回编码器名称和MIME类型
+    json.put("encoderName", cfg.getEncoderName())
+    json.put("mimeType", cfg.getMimeType())
     json.put("rtsp", "rtsp://${cfg.getUsername()}:${cfg.getPassword()}@${host}:${cfg.getPort()}/live")
     json.put("web", "http://$ip/")
     return newFixedLengthResponse(Status.OK, "application/json", json.toString())
+  }
+
+  // 新增：获取设备支持的编码器列表
+  private fun getEncoders(@Suppress("UNUSED_PARAMETER") session: IHTTPSession): Response {
+    val encoders = com.qnvr.stream.EncoderManager.getSupportedEncoders()
+    val jsonArray = org.json.JSONArray()
+    
+    encoders.forEach { encoder ->
+      val jsonObj = org.json.JSONObject()
+      jsonObj.put("name", encoder.name)
+      jsonObj.put("mimeType", encoder.mimeType)
+      jsonObj.put("isHardwareAccelerated", encoder.isHardwareAccelerated)
+      jsonObj.put("displayName", encoder.getDisplayName())
+      jsonArray.put(jsonObj)
+    }
+    
+    return newFixedLengthResponse(Status.OK, "application/json", jsonArray.toString())
   }
 }

@@ -42,9 +42,22 @@ class RecorderService : LifecycleService(), ConfigApplier {
     camera = CameraController(this)
     mjpegStreamer = MjpegStreamer(camera)
     httpServer = HttpServer(this, camera, mjpegStreamer, cfg, this)
-    rtspServer = RtspServerWrapper(this, camera, cfg.getPort(), cfg.getUsername(), cfg.getPassword(), cfg.getWidth(), cfg.getHeight(), 30, cfg.getBitrate())
+    rtspServer = RtspServerWrapper(
+        this, 
+        camera, 
+        cfg.getPort(), 
+        cfg.getUsername(), 
+        cfg.getPassword(), 
+        cfg.getWidth(), 
+        cfg.getHeight(), 
+        30, 
+        cfg.getBitrate(), 
+        cfg.getEncoderName(),  // 使用配置的编码器名称
+        cfg.getMimeType()      // 使用配置的MIME类型
+    )
 
     camera.setWatermarkEnabled(true)
+    camera.setRtspWatermarkEnabled(true)  // 启用RTSP流水印
     camera.setZoom(1.0f)
     camera.setDeviceName(cfg.getDeviceName())
     camera.setShowDeviceName(cfg.isShowDeviceName())
@@ -102,11 +115,35 @@ class RecorderService : LifecycleService(), ConfigApplier {
 
   override fun applyPort(port: Int) {
     try { rtspServer.stop() } catch (_: Exception) {}
-    try { rtspServer = RtspServerWrapper(this, camera, port, cfg.getUsername(), cfg.getPassword(), cfg.getWidth(), cfg.getHeight(), 30, cfg.getBitrate()); rtspServer.start() } catch (e: Exception) { Sentry.captureException(e) }
+    try { 
+      rtspServer = RtspServerWrapper(
+          this, 
+          camera, 
+          port, 
+          cfg.getUsername(), 
+          cfg.getPassword(), 
+          cfg.getWidth(), 
+          cfg.getHeight(), 
+          30, 
+          cfg.getBitrate(), 
+          cfg.getEncoderName(),  // 使用配置的编码器名称
+          cfg.getMimeType()      // 使用配置的MIME类型
+      )
+      rtspServer.start() 
+    } catch (e: Exception) { Sentry.captureException(e) }
   }
 
   override fun applyEncoder(width: Int, height: Int, bitrate: Int) {
-    try { rtspServer.updateEncoder(width, height, 30, bitrate) } catch (e: Exception) { Sentry.captureException(e) }
+    try { 
+      rtspServer.updateEncoder(
+          width, 
+          height, 
+          30, 
+          bitrate, 
+          cfg.getEncoderName(),  // 使用配置的编码器名称
+          cfg.getMimeType()      // 使用配置的MIME类型
+      ) 
+    } catch (e: Exception) { Sentry.captureException(e) }
   }
 
   override fun applyDeviceName(name: String) { try { camera.setDeviceName(name) } catch (_: Exception) {} }

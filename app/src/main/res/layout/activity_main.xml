@@ -2,7 +2,8 @@
 <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:padding="16dp">
 
     <Button
         android:id="@+id/btnStart"
@@ -19,15 +20,21 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:text="停止录像服务"
+        android:layout_marginTop="8dp"
         app:layout_constraintTop_toBottomOf="@id/btnStart"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
+    
     <TextView
         android:id="@+id/tvStatus"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:text="服务已启动"
+        android:text="正在获取网络信息..."
         android:gravity="center"
+        android:layout_marginTop="16dp"
+        android:padding="16dp"
+        android:background="#f0f0f0"
+        android:textColor="#333"
         app:layout_constraintTop_toBottomOf="@id/btnStop"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />

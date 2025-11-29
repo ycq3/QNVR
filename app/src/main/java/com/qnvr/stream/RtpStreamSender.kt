@@ -11,7 +11,7 @@ class RtpStreamSender(private val out: OutputStream) {
   fun sendNal(nal: ByteArray, timestamp90k: Int, channel: Int = 0) {
     try {
       val maxPayload = 1400
-      val type = nal[0].toInt() and 0x1F
+      // val type = nal[0].toInt() and 0x1F  // 移除未使用的变量
       if (nal.size <= maxPayload) {
         val header = rtpHeader(timestamp90k)
         val rtp = header + nal
@@ -21,11 +21,11 @@ class RtpStreamSender(private val out: OutputStream) {
         val naluHeader = nal[0].toInt()
         var offset = 1
         var start = true
-        var end = false
+        // var end = false  // 移除冗余的初始化
         while (offset < nal.size) {
           val remaining = nal.size - offset
           val chunk = if (remaining > maxPayload - 2) maxPayload - 2 else remaining
-          end = offset + chunk >= nal.size
+          val end = offset + chunk >= nal.size  // 在需要的地方定义变量
           val fuHeader = ((if (start) 0x80 else 0x00) or (if (end) 0x40 else 0x00) or (naluHeader and 0x1F)).toByte()
           val payload = ByteArray(2 + chunk)
           payload[0] = fuIndicator.toByte()

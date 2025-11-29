@@ -9,21 +9,36 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.atomic.AtomicBoolean
 import io.sentry.Sentry
+import android.media.MediaFormat
 
-class RtspServerWrapper(private val ctx: Context, private val camera: CameraController, private var port: Int, private var username: String, private var password: String, width: Int, height: Int, fps: Int, bitrate: Int) {
+class RtspServerWrapper(
+    private val ctx: Context, 
+    private val camera: CameraController, 
+    private var port: Int, 
+    private var username: String, 
+    private var password: String, 
+    width: Int, 
+    height: Int, 
+    fps: Int, 
+    bitrate: Int, 
+    private val encoderName: String? = null,  // 指定编码器名称
+    private val mimeType: String = MediaFormat.MIMETYPE_VIDEO_AVC  // 编码格式
+) {
   private var server: ServerSocket? = null
   private val running = AtomicBoolean(false)
-  private lateinit var encoder: H264Encoder
+  private lateinit var encoder: com.qnvr.stream.VideoEncoder  // 修复类引用
   private var width = width
   private var height = height
   private var fps = fps
   private var bitrate = bitrate
+  private var serverIp: String = "0.0.0.0"
 
   fun start() {
-    encoder = H264Encoder(width, height, fps, bitrate)
+    encoder = com.qnvr.stream.VideoEncoder(width, height, fps, bitrate, encoderName, mimeType)  // 修复类引用
     encoder.start()
     camera.setEncoderSurface(encoder.getInputSurface())
     server = ServerSocket(port)
+    serverIp = server?.localSocketAddress?.toString()?.substringAfter("/")?.substringBefore(":") ?: "0.0.0.0"
     running.set(true)
     Thread { acceptLoop() }.start()
   }
@@ -44,6 +59,7 @@ class RtspServerWrapper(private val ctx: Context, private val camera: CameraCont
   private fun handleClient(socket: Socket) {
     val reader = BufferedReader(InputStreamReader(socket.getInputStream()))
     val out = socket.getOutputStream()
+    val clientIp = socket.inetAddress.hostAddress ?: "unknown"
     var sessionId = System.currentTimeMillis().toString()
     var cseq = 0
     var interleaved = 0
@@ -71,9 +87,24 @@ class RtspServerWrapper(private val ctx: Context, private val camera: CameraCont
           writeRtsp(out, cseq, StatusLine.OK, listOf("Public: OPTIONS, DESCRIBE, SETUP, TEARDOWN, PLAY"))
         }
         "DESCRIBE" -> {
-          if (spspps == null) spspps = encoder.getSpsPps()
-          val sdp = buildSdp(spspps?.first, spspps?.second)
-          writeRtsp(out, cseq, StatusLine.OK, listOf("Content-Base: rtsp://0.0.0.0:${port}/live/", "Content-Type: application/sdp"), sdp)
+          // 确保SPS/PPS数据已准备好
+          var attempts = 0
+          while (spspps == null && attempts < 10) {
+            spspps = encoder.getSpsPps()
+            if (spspps == null) {
+              Thread.sleep(100)
+              attempts++
+            }
+          }
+          
+          // 如果仍然没有SPS/PPS数据，返回错误
+          if (spspps == null) {
+            writeRtsp(out, cseq, StatusLine.NotAllowed, emptyList())
+            continue
+          }
+          
+          val sdp = buildSdp(spspps.first, spspps.second)
+          writeRtsp(out, cseq, StatusLine.OK, listOf("Content-Base: rtsp://$clientIp:${port}/live/", "Content-Type: application/sdp"), sdp)
         }
         "SETUP" -> {
           val transport = headers["Transport"] ?: ""
@@ -100,7 +131,7 @@ class RtspServerWrapper(private val ctx: Context, private val camera: CameraCont
   }
 
   private fun streamLoop(out: OutputStream, channel: Int) {
-    val sender = RtpH264Sender(out)
+    val sender = com.qnvr.stream.RtpStreamSender(out)  // 更新类引用
     while (true) {
       try {
         val frame = encoder.poll() ?: continue
@@ -133,15 +164,40 @@ class RtspServerWrapper(private val ctx: Context, private val camera: CameraCont
   private fun buildSdp(sps: ByteArray?, pps: ByteArray?): String {
     val spsB64 = if (sps != null) android.util.Base64.encodeToString(sps, android.util.Base64.NO_WRAP) else ""
     val ppsB64 = if (pps != null) android.util.Base64.encodeToString(pps, android.util.Base64.NO_WRAP) else ""
+    
+    // 根据MIME类型设置SDP参数
+    val (rtpmap, fmtp) = when (mimeType) {
+      MediaFormat.MIMETYPE_VIDEO_HEVC -> {
+        val rtpmap = "a=rtpmap:96 H265/90000\r\n"
+        val fmtp = "a=fmtp:96 sprop-vps=;sprop-sps=$spsB64;sprop-pps=$ppsB64\r\n"
+        Pair(rtpmap, fmtp)
+      }
+      MediaFormat.MIMETYPE_VIDEO_VP8 -> {
+        val rtpmap = "a=rtpmap:96 VP8/90000\r\n"
+        val fmtp = "a=fmtp:96\r\n"
+        Pair(rtpmap, fmtp)
+      }
+      MediaFormat.MIMETYPE_VIDEO_VP9 -> {
+        val rtpmap = "a=rtpmap:96 VP9/90000\r\n"
+        val fmtp = "a=fmtp:96\r\n"
+        Pair(rtpmap, fmtp)
+      }
+      else -> {  // 默认H.264/AVC
+        val rtpmap = "a=rtpmap:96 H264/90000\r\n"
+        val fmtp = "a=fmtp:96 packetization-mode=1;profile-level-id=42e01e;sprop-parameter-sets=$spsB64,$ppsB64\r\n"
+        Pair(rtpmap, fmtp)
+      }
+    }
+    
     return "v=0\r\n" +
-      "o=- 0 0 IN IP4 0.0.0.0\r\n" +
+      "o=- 0 0 IN IP4 127.0.0.1\r\n" +
       "s=QNVR\r\n" +
       "c=IN IP4 0.0.0.0\r\n" +
       "t=0 0\r\n" +
       "m=video 0 RTP/AVP 96\r\n" +
       "a=control:trackID=0\r\n" +
-      "a=rtpmap:96 H264/90000\r\n" +
-      "a=fmtp:96 packetization-mode=1;profile-level-id=42e01e;sprop-parameter-sets=$spsB64,$ppsB64\r\n"
+      rtpmap +
+      fmtp
   }
 
   private fun splitAnnexB(data: ByteArray): List<ByteArray> {
@@ -160,10 +216,10 @@ class RtspServerWrapper(private val ctx: Context, private val camera: CameraCont
     return out
   }
 
-  fun updateEncoder(w: Int, h: Int, f: Int, b: Int) {
+  fun updateEncoder(w: Int, h: Int, f: Int, b: Int, encName: String? = null, mime: String = MediaFormat.MIMETYPE_VIDEO_AVC) {
     width = w; height = h; fps = f; bitrate = b
     try { encoder.stop() } catch (_: Exception) {}
-    encoder = H264Encoder(width, height, fps, bitrate)
+    encoder = com.qnvr.stream.VideoEncoder(width, height, fps, bitrate, encName, mime)  // 修复类引用
     encoder.start()
     camera.setEncoderSurface(encoder.getInputSurface())
   }
@@ -171,7 +227,11 @@ class RtspServerWrapper(private val ctx: Context, private val camera: CameraCont
   fun updateCredentials(u: String, p: String) { username = u; password = p }
 
   private fun checkAuth(headers: Map<String, String>): Boolean {
+    // 如果用户名和密码都为空，则不需要验证
+    if (username.isEmpty() && password.isEmpty()) return true
+    // 如果没有设置密码，则允许访问
     if (password.isEmpty()) return true
+    // 如果设置了密码但没有提供认证头，则需要验证
     val auth = headers["Authorization"] ?: return false
     if (!auth.startsWith("Basic ")) return false
     val b64 = auth.substring(6)

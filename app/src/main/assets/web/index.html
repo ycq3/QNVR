@@ -9,8 +9,33 @@
     img { width: 100%; max-width: 640px; background: #000; }
     .row { margin: 8px 0; }
     label { display: inline-block; width: 100px; }
+    select { width: 200px; }
   </style>
   <script>
+    let encoders = []; // 存储可用编码器列表
+    
+    // 页面加载时获取编码器列表
+    async function loadEncoders() {
+      try {
+        const response = await fetch('/api/encoders');
+        encoders = await response.json();
+        const encoderSelect = document.getElementById('encoderName');
+        encoderSelect.innerHTML = '<option value="">自动选择</option>';
+        
+        encoders.forEach(encoder => {
+          const option = document.createElement('option');
+          option.value = encoder.name;
+          option.textContent = encoder.displayName;
+          if (encoder.name === document.getElementById('encoderName').dataset.current) {
+            option.selected = true;
+          }
+          encoderSelect.appendChild(option);
+        });
+      } catch (e) {
+        console.error('Failed to load encoders:', e);
+      }
+    }
+    
     async function refresh() {
       const s = await fetch('/api/config').then(r=>r.json())
       const rtsp = document.getElementById('rtsp')
@@ -23,11 +48,20 @@
       document.getElementById('showDeviceName').checked = !!s.showDeviceName
       document.getElementById('username').value = s.username || 'admin'
       document.getElementById('password').value = s.password || ''
-      document.getElementById('port').value = s.port || 8554
-      document.getElementById('bitrate').value = s.bitrate || 2000000
+      document.getElementById('port').value = s.port || 18554  // 将默认端口从8554改为18554
+      document.getElementById('bitrate').value = s.bitrate || 4000000
+      document.getElementById('useSoftwareEncoder').checked = !!s.useSoftwareEncoder
+      // 设置编码器选项
+      document.getElementById('encoderName').dataset.current = s.encoderName || '';
+      document.getElementById('mimeType').value = s.mimeType || 'video/avc';
+      
+      // 加载编码器列表
+      await loadEncoders();
+      
       const res = `${s.width}x${s.height}`
       document.getElementById('resolution').value = res
     }
+    
     async function applyCfg() {
       const torch = document.getElementById('torch').checked
       const watermark = document.getElementById('watermark').checked
@@ -38,14 +72,19 @@
       const password = document.getElementById('password').value
       const port = parseInt(document.getElementById('port').value, 10)
       const bitrate = parseInt(document.getElementById('bitrate').value, 10)
+      const useSoftwareEncoder = document.getElementById('useSoftwareEncoder').checked
+      const encoderName = document.getElementById('encoderName').value || null
+      const mimeType = document.getElementById('mimeType').value
       const [width, height] = document.getElementById('resolution').value.split('x').map(x=>parseInt(x,10))
-      await fetch('/api/config', {method:'POST', body: JSON.stringify({torch, watermark, zoom, deviceName, showDeviceName, username, password, port, bitrate, width, height})})
+      await fetch('/api/config', {method:'POST', body: JSON.stringify({torch, watermark, zoom, deviceName, showDeviceName, username, password, port, bitrate, useSoftwareEncoder, encoderName, mimeType, width, height})})
       refresh()
     }
+    
     function startPreview() {
       const img = document.getElementById('mjpeg')
       img.src = '/stream.mjpg'
     }
+    
     window.onload = ()=>{ refresh(); startPreview(); }
   </script>
 </head>
@@ -59,8 +98,18 @@
   <div class="row"><label>显示设备名</label><input id="showDeviceName" type="checkbox"></div>
   <div class="row"><label>用户名</label><input id="username" type="text" value="admin"></div>
   <div class="row"><label>密码</label><input id="password" type="password"></div>
-  <div class="row"><label>RTSP 端口</label><input id="port" type="number" min="1024" max="65535" value="8554"></div>
-  <div class="row"><label>码率</label><input id="bitrate" type="number" min="500000" step="100000" value="2000000"></div>
+  <div class="row"><label>RTSP 端口</label><input id="port" type="number" min="1024" max="65535" value="18554"></div>  <!-- 将默认端口从8554改为18554 -->
+  <div class="row"><label>码率</label><input id="bitrate" type="number" min="500000" step="100000" value="4000000"></div>
+  <div class="row"><label>编码格式</label>
+    <select id="mimeType">
+      <option value="video/avc">H.264/AVC</option>
+      <option value="video/hevc">H.265/HEVC</option>
+      <option value="video/x-vnd.on2.vp8">VP8</option>
+      <option value="video/x-vnd.on2.vp9">VP9</option>
+    </select>
+  </div>
+  <div class="row"><label>编码器</label><select id="encoderName"></select></div>
+  <div class="row"><label>软件编码</label><input id="useSoftwareEncoder" type="checkbox"></div>
   <div class="row"><label>分辨率</label>
     <select id="resolution">
       <option value="1280x720">1280x720</option>
