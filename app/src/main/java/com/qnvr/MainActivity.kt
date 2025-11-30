@@ -77,6 +77,9 @@ class MainActivity : ComponentActivity() {
       val interfaces: Enumeration<NetworkInterface> = NetworkInterface.getNetworkInterfaces()
       while (interfaces.hasMoreElements()) {
         val networkInterface: NetworkInterface = interfaces.nextElement()
+        // 打印网络接口信息用于调试
+        android.util.Log.d("MainActivity", "Network interface: ${networkInterface.name}, isUp: ${networkInterface.isUp}, isLoopback: ${networkInterface.isLoopback}")
+        
         if (networkInterface.isLoopback || !networkInterface.isUp) {
           continue
         }
@@ -85,13 +88,17 @@ class MainActivity : ComponentActivity() {
         while (addresses.hasMoreElements()) {
           val inetAddress: InetAddress = addresses.nextElement()
           val hostAddress = inetAddress.hostAddress
+          // 打印IP地址信息用于调试
+          android.util.Log.d("MainActivity", "IP Address: $hostAddress, isLoopback: ${inetAddress.isLoopbackAddress}, hasColon: ${hostAddress?.indexOf(':')}")
+          
           if (hostAddress != null && !inetAddress.isLoopbackAddress && hostAddress.indexOf(':') == -1) {
+            android.util.Log.d("MainActivity", "Selected IP Address: $hostAddress")
             return hostAddress
           }
         }
       }
     } catch (e: Exception) {
-      // 忽略异常
+      android.util.Log.e("MainActivity", "Error getting IP address", e)
     }
     return "127.0.0.1"
   }

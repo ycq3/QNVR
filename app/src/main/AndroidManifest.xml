@@ -18,7 +18,8 @@
         android:icon="@android:drawable/sym_def_app_icon"
         android:roundIcon="@android:drawable/sym_def_app_icon"
         android:supportsRtl="true"
-        android:name=".QNVRApp">
+        android:name=".QNVRApp"
+        android:networkSecurityConfig="@xml/network_security_config">
 
         <service
             android:name=".service.RecorderService"

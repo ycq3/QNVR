@@ -27,10 +27,13 @@ class VideoEncoder(
 
   fun start() {
     try {
+      android.util.Log.i("VideoEncoder", "Starting video encoder with mimeType: $mimeType, resolution: ${width}x${height}, bitrate: $bitrate")
       startEncoder()
       isStarted = true
       Thread { drainLoop() }.start()
+      android.util.Log.i("VideoEncoder", "Video encoder started successfully")
     } catch (e: Exception) {
+      android.util.Log.e("VideoEncoder", "Failed to start video encoder", e)
       Sentry.captureException(e)
       throw e
     }
@@ -42,12 +45,26 @@ class VideoEncoder(
     // 根据编码器类型设置颜色格式
     if (encoderName != null) {
       // 使用指定的编码器
-      codec = MediaCodec.createByCodecName(encoderName)
+      android.util.Log.i("VideoEncoder", "Using specified encoder: $encoderName")
+      try {
+        codec = MediaCodec.createByCodecName(encoderName)
+      } catch (e: Exception) {
+        android.util.Log.e("VideoEncoder", "Failed to create codec by name: $encoderName", e)
+        Sentry.captureException(e)
+        throw e
+      }
       // 根据编码器支持的颜色格式进行设置
       format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
     } else {
       // 使用默认编码器
-      codec = MediaCodec.createEncoderByType(mimeType)
+      android.util.Log.i("VideoEncoder", "Using default encoder for mimeType: $mimeType")
+      try {
+        codec = MediaCodec.createEncoderByType(mimeType)
+      } catch (e: Exception) {
+        android.util.Log.e("VideoEncoder", "Failed to create encoder by type: $mimeType", e)
+        Sentry.captureException(e)
+        throw e
+      }
       format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
     }
     
@@ -55,15 +72,25 @@ class VideoEncoder(
     format.setInteger(MediaFormat.KEY_FRAME_RATE, fps)
     format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2)
     
-    codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-    inputSurface = codec.createInputSurface()
-    codec.start()
+    android.util.Log.i("VideoEncoder", "Configuring codec with format: $format")
+    try {
+      codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+      inputSurface = codec.createInputSurface()
+      codec.start()
+      android.util.Log.i("VideoEncoder", "Codec started successfully")
+    } catch (e: Exception) {
+      android.util.Log.e("VideoEncoder", "Failed to configure or start codec", e)
+      Sentry.captureException(e)
+      throw e
+    }
   }
 
   fun stop() {
+    android.util.Log.i("VideoEncoder", "Stopping video encoder")
     isStarted = false
     try { codec.stop() } catch (_: Exception) {}
     try { codec.release() } catch (_: Exception) {}
+    android.util.Log.i("VideoEncoder", "Video encoder stopped")
   }
 
   fun getInputSurface(): Surface = inputSurface
@@ -98,6 +125,7 @@ class VideoEncoder(
         }
       } catch (e: Exception) {
         if (isStarted) {
+          android.util.Log.e("VideoEncoder", "Error in drain loop", e)
           Sentry.captureException(e)
         }
         break

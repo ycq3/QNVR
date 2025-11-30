@@ -25,6 +25,39 @@ class ConfigStore(ctx: Context) {
   // 新增：获取编码器名称和MIME类型
   fun getEncoderName(): String? = sp.getString("encoderName", null)
   fun setEncoderName(v: String?) { sp.edit().putString("encoderName", v).apply() }
-  fun getMimeType(): String = sp.getString("mimeType", MediaFormat.MIMETYPE_VIDEO_AVC) ?: MediaFormat.MIMETYPE_VIDEO_AVC
-  fun setMimeType(v: String) { sp.edit().putString("mimeType", v).apply() }
+  
+  // 为不同编码格式提供合适的默认码率
+  fun getMimeType(): String {
+    val mimeType = sp.getString("mimeType", MediaFormat.MIMETYPE_VIDEO_AVC) ?: MediaFormat.MIMETYPE_VIDEO_AVC
+    // 确保返回的MIME类型是有效的
+    return when (mimeType) {
+      MediaFormat.MIMETYPE_VIDEO_AVC,
+      MediaFormat.MIMETYPE_VIDEO_HEVC,
+      MediaFormat.MIMETYPE_VIDEO_VP8,
+      MediaFormat.MIMETYPE_VIDEO_VP9 -> mimeType
+      else -> MediaFormat.MIMETYPE_VIDEO_AVC  // 默认使用H.264
+    }
+  }
+  
+  fun setMimeType(v: String) { 
+    // 验证MIME类型
+    val validMimeType = when (v) {
+      MediaFormat.MIMETYPE_VIDEO_AVC,
+      MediaFormat.MIMETYPE_VIDEO_HEVC,
+      MediaFormat.MIMETYPE_VIDEO_VP8,
+      MediaFormat.MIMETYPE_VIDEO_VP9 -> v
+      else -> MediaFormat.MIMETYPE_VIDEO_AVC  // 默认使用H.264
+    }
+    sp.edit().putString("mimeType", validMimeType).apply() 
+  }
+  
+  // 根据编码格式获取合适的默认码率
+  fun getBitrateForMimeType(mimeType: String = getMimeType()): Int {
+    return when (mimeType) {
+      MediaFormat.MIMETYPE_VIDEO_HEVC -> 3_000_000  // HEVC通常需要较低码率
+      MediaFormat.MIMETYPE_VIDEO_VP8,
+      MediaFormat.MIMETYPE_VIDEO_VP9 -> 4_000_000  // VP8/VP9码率
+      else -> 4_000_000  // H.264和其他格式
+    }
+  }
 }

@@ -34,26 +34,55 @@ class RtspServerWrapper(
   private var serverIp: String = "0.0.0.0"
 
   fun start() {
-    encoder = com.qnvr.stream.VideoEncoder(width, height, fps, bitrate, encoderName, mimeType)  // 修复类引用
-    encoder.start()
-    camera.setEncoderSurface(encoder.getInputSurface())
-    server = ServerSocket(port)
-    serverIp = server?.localSocketAddress?.toString()?.substringAfter("/")?.substringBefore(":") ?: "0.0.0.0"
-    running.set(true)
-    Thread { acceptLoop() }.start()
+    try {
+      android.util.Log.i("RtspServerWrapper", "Initializing video encoder with mimeType: $mimeType, encoderName: $encoderName")
+      encoder = com.qnvr.stream.VideoEncoder(width, height, fps, bitrate, encoderName, mimeType)  // 修复类引用
+      encoder.start()
+      camera.setEncoderSurface(encoder.getInputSurface())
+    } catch (e: Exception) {
+      android.util.Log.e("RtspServerWrapper", "Failed to initialize video encoder", e)
+      Sentry.captureException(e)
+      throw RuntimeException("Failed to initialize video encoder", e)
+    }
+    
+    try {
+      android.util.Log.i("RtspServerWrapper", "Attempting to start RTSP server on port $port")
+      server = ServerSocket(port, 50, java.net.InetAddress.getByName("0.0.0.0"))
+      serverIp = server?.localSocketAddress?.toString()?.substringAfter("/")?.substringBefore(":") ?: "0.0.0.0"
+      android.util.Log.i("RtspServerWrapper", "RTSP server started on port $port, IP: $serverIp")
+      running.set(true)
+      Thread { acceptLoop() }.start()
+    } catch (e: Exception) {
+      android.util.Log.e("RtspServerWrapper", "Failed to start RTSP server on port $port", e)
+      Sentry.captureException(e)
+      throw RuntimeException("Failed to start RTSP server on port $port", e)
+    }
   }
 
   fun stop() {
+    android.util.Log.i("RtspServerWrapper", "Stopping RTSP server")
     running.set(false)
     try { server?.close() } catch (_: Exception) {}
     encoder.stop()
   }
 
   private fun acceptLoop() {
+    android.util.Log.i("RtspServerWrapper", "RTSP server accept loop started")
     while (running.get()) {
-      val s = try { server?.accept() } catch (e: Exception) { null } ?: continue
+      val s = try { 
+        server?.accept() 
+      } catch (e: Exception) { 
+        if (running.get()) {
+          android.util.Log.e("RtspServerWrapper", "Error accepting connection", e)
+          Sentry.captureException(e)
+        }
+        null 
+      } ?: continue
+      
+      android.util.Log.i("RtspServerWrapper", "New client connected from ${s.inetAddress.hostAddress}:${s.port}")
       Thread { handleClient(s) }.start()
     }
+    android.util.Log.i("RtspServerWrapper", "RTSP server accept loop stopped")
   }
 
   private fun handleClient(socket: Socket) {
@@ -169,6 +198,7 @@ class RtspServerWrapper(
     val (rtpmap, fmtp) = when (mimeType) {
       MediaFormat.MIMETYPE_VIDEO_HEVC -> {
         val rtpmap = "a=rtpmap:96 H265/90000\r\n"
+        // HEVC可能需要VPS, SPS, PPS
         val fmtp = "a=fmtp:96 sprop-vps=;sprop-sps=$spsB64;sprop-pps=$ppsB64\r\n"
         Pair(rtpmap, fmtp)
       }
@@ -236,6 +266,21 @@ class RtspServerWrapper(
     if (!auth.startsWith("Basic ")) return false
     val b64 = auth.substring(6)
     val decoded = String(android.util.Base64.decode(b64, android.util.Base64.DEFAULT))
-    return decoded == "$username:$password"
+    // 调试日志，输出解码后的认证信息
+    println("Received auth: $decoded, expected: $username:$password")
+    
+    // 处理URL编码的用户名和密码
+    return try {
+      val parts = decoded.split(":", limit = 2)
+      if (parts.size != 2) return false
+      
+      val receivedUsername = java.net.URLDecoder.decode(parts[0], "UTF-8")
+      val receivedPassword = java.net.URLDecoder.decode(parts[1], "UTF-8")
+      
+      receivedUsername == username && receivedPassword == password
+    } catch (e: Exception) {
+      // 如果解码失败，回退到原始比较
+      decoded == "$username:$password"
+    }
   }
 }

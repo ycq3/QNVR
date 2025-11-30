@@ -59,7 +59,10 @@ class HttpServer(ctx: Context, private val camera: CameraController, private val
   private fun serveStatus(session: IHTTPSession): Response {
     val ip = session.headers["host"] ?: "localhost"
     val host = ip.substringBefore(":")
-    val rtsp = "rtsp://${cfg.getUsername()}:${cfg.getPassword()}@${host}:${cfg.getPort()}/live"
+    // 对用户名和密码进行URL编码以避免特殊字符问题
+    val encodedUsername = java.net.URLEncoder.encode(cfg.getUsername(), "UTF-8")
+    val encodedPassword = java.net.URLEncoder.encode(cfg.getPassword(), "UTF-8")
+    val rtsp = "rtsp://$encodedUsername:$encodedPassword@${host}:${cfg.getPort()}/live"
     val json = JSONObject()
     json.put("rtsp", rtsp)
     json.put("web", "http://$ip/")
@@ -83,7 +86,13 @@ class HttpServer(ctx: Context, private val camera: CameraController, private val
     if (json.has("port")) { val p = json.getInt("port"); cfg.setPort(p); applier.applyPort(p) }
     if (json.has("bitrate")) { val b = json.getInt("bitrate"); cfg.setBitrate(b); applier.applyEncoder(cfg.getWidth(), cfg.getHeight(), b) }
     if (json.has("width") && json.has("height")) { val w = json.getInt("width"); val h = json.getInt("height"); cfg.setResolution(w,h); applier.applyEncoder(w,h,cfg.getBitrate()) }
-    if (json.has("username") || json.has("password")) { val u = json.optString("username", cfg.getUsername()); val p = json.optString("password", cfg.getPassword()); cfg.setCredentials(u,p); applier.applyCredentials(u,p) }
+    if (json.has("username") || json.has("password")) { 
+      // 只有当两个字段都存在时才更新认证信息，或者使用现有值作为默认值
+      val u = if (json.has("username")) json.getString("username") else cfg.getUsername()
+      val p = if (json.has("password")) json.getString("password") else cfg.getPassword()
+      cfg.setCredentials(u, p)
+      applier.applyCredentials(u, p) 
+    }
     if (json.has("deviceName")) { val n = json.getString("deviceName"); cfg.setDeviceName(n); applier.applyDeviceName(n) }
     if (json.has("showDeviceName")) { val s = json.getBoolean("showDeviceName"); cfg.setShowDeviceName(s); applier.applyShowDeviceName(s) }
     // 编码器配置
@@ -115,7 +124,10 @@ class HttpServer(ctx: Context, private val camera: CameraController, private val
     // 新增：返回编码器名称和MIME类型
     json.put("encoderName", cfg.getEncoderName())
     json.put("mimeType", cfg.getMimeType())
-    json.put("rtsp", "rtsp://${cfg.getUsername()}:${cfg.getPassword()}@${host}:${cfg.getPort()}/live")
+    // 对用户名和密码进行URL编码以避免特殊字符问题
+    val encodedUsername = java.net.URLEncoder.encode(cfg.getUsername(), "UTF-8")
+    val encodedPassword = java.net.URLEncoder.encode(cfg.getPassword(), "UTF-8")
+    json.put("rtsp", "rtsp://$encodedUsername:$encodedPassword@${host}:${cfg.getPort()}/live")
     json.put("web", "http://$ip/")
     return newFixedLengthResponse(Status.OK, "application/json", json.toString())
   }
