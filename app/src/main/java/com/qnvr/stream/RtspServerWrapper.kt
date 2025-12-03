@@ -34,17 +34,9 @@ class RtspServerWrapper(
   private var serverIp: String = "0.0.0.0"
 
   fun start() {
-    try {
-      android.util.Log.i("RtspServerWrapper", "Initializing video encoder with mimeType: $mimeType, encoderName: $encoderName")
-      encoder = com.qnvr.stream.VideoEncoder(width, height, fps, bitrate, encoderName, mimeType)  // 修复类引用
-      encoder.start()
-      camera.setEncoderSurface(encoder.getInputSurface())
-    } catch (e: Exception) {
-      android.util.Log.e("RtspServerWrapper", "Failed to initialize video encoder", e)
-      Sentry.captureException(e)
-      throw RuntimeException("Failed to initialize video encoder", e)
-    }
-    
+    // Log all available encoders as requested by user
+    logAvailableEncoders()
+
     try {
       android.util.Log.i("RtspServerWrapper", "Attempting to start RTSP server on port $port")
       server = ServerSocket(port, 50, java.net.InetAddress.getByName("0.0.0.0"))
@@ -57,13 +49,55 @@ class RtspServerWrapper(
       Sentry.captureException(e)
       throw RuntimeException("Failed to start RTSP server on port $port", e)
     }
+
+    try {
+      val useSurface = !camera.isRtspWatermarkEnabled()
+      android.util.Log.i("RtspServerWrapper", "Initializing video encoder with mimeType: $mimeType, encoderName: $encoderName, useSurface: $useSurface")
+      encoder = com.qnvr.stream.VideoEncoder(width, height, fps, bitrate, encoderName, mimeType, useSurface)
+      encoder.start()
+      
+      if (useSurface) {
+          val surface = encoder.getInputSurface()
+          if (surface != null) {
+              camera.setEncoderSurface(surface)
+          } else {
+              android.util.Log.e("RtspServerWrapper", "Encoder input surface is null but useSurface is true")
+          }
+      } else {
+          camera.setRtspEncoder(encoder)
+      }
+    } catch (e: Exception) {
+      android.util.Log.e("RtspServerWrapper", "Failed to initialize video encoder", e)
+      Sentry.captureException(e)
+      // Don't stop the server if encoder fails, just log it.
+      // The server will respond with 503 or 405 to clients.
+      // stop() 
+      // throw RuntimeException("Failed to initialize video encoder", e)
+    }
+  }
+
+  private fun logAvailableEncoders() {
+    val encoders = EncoderManager.getSupportedEncoders()
+    android.util.Log.i("RtspServerWrapper", "=== Available Video Encoders ===")
+    for (info in encoders) {
+        android.util.Log.i("RtspServerWrapper", "Encoder: ${info.name}")
+        android.util.Log.i("RtspServerWrapper", "  MIME: ${info.mimeType}")
+        android.util.Log.i("RtspServerWrapper", "  Hardware: ${info.isHardwareAccelerated}")
+        info.supportedWidths?.let { android.util.Log.i("RtspServerWrapper", "  Width: $it") }
+        info.supportedHeights?.let { android.util.Log.i("RtspServerWrapper", "  Height: $it") }
+        info.bitrateRange?.let { android.util.Log.i("RtspServerWrapper", "  Bitrate: $it") }
+    }
+    android.util.Log.i("RtspServerWrapper", "================================")
   }
 
   fun stop() {
     android.util.Log.i("RtspServerWrapper", "Stopping RTSP server")
     running.set(false)
     try { server?.close() } catch (_: Exception) {}
-    encoder.stop()
+    if (::encoder.isInitialized) {
+        encoder.stop()
+    }
+    camera.setRtspEncoder(null)
   }
 
   private fun acceptLoop() {
@@ -93,7 +127,15 @@ class RtspServerWrapper(
     var cseq = 0
     var interleaved = 0
     var streaming = false
-    var spspps = encoder.getSpsPps()
+    
+    // Check if encoder is ready
+    var codecConfig: com.qnvr.stream.VideoEncoder.CodecConfig? = null
+    if (this::encoder.isInitialized) {
+        try {
+            codecConfig = encoder.getCodecConfig()
+        } catch (_: Exception) {}
+    }
+
     while (true) {
       val reqLine = reader.readLine() ?: break
       val parts = reqLine.split(" ")
@@ -107,32 +149,41 @@ class RtspServerWrapper(
         if (idx > 0) headers[line.substring(0, idx).trim()] = line.substring(idx + 1).trim()
       }
       cseq = headers["CSeq"]?.toIntOrNull() ?: (cseq + 1)
+      
       if (!checkAuth(headers)) {
         writeRtsp(out, cseq, StatusLine.Unauthorized, listOf("WWW-Authenticate: Basic realm=\"QNVR\""))
         continue
       }
+
+      if (!this::encoder.isInitialized) {
+         writeRtsp(out, cseq, StatusLine.ServerError, emptyList())
+         continue
+      }
+
       when (method) {
         "OPTIONS" -> {
           writeRtsp(out, cseq, StatusLine.OK, listOf("Public: OPTIONS, DESCRIBE, SETUP, TEARDOWN, PLAY"))
         }
         "DESCRIBE" -> {
-          // 确保SPS/PPS数据已准备好
+          // 确保SPS/PPS数据已准备好 (仅针对需要SPS/PPS的编码格式)
+          val needsSpsPps = mimeType == MediaFormat.MIMETYPE_VIDEO_AVC || mimeType == MediaFormat.MIMETYPE_VIDEO_HEVC
+          
           var attempts = 0
-          while (spspps == null && attempts < 10) {
-            spspps = encoder.getSpsPps()
-            if (spspps == null) {
+          while (codecConfig == null && needsSpsPps && attempts < 30) {
+            codecConfig = encoder.getCodecConfig()
+            if (codecConfig == null) {
               Thread.sleep(100)
               attempts++
             }
           }
           
-          // 如果仍然没有SPS/PPS数据，返回错误
-          if (spspps == null) {
+          // 如果需要SPS/PPS但仍然没有数据，返回错误
+          if (codecConfig == null && needsSpsPps) {
             writeRtsp(out, cseq, StatusLine.NotAllowed, emptyList())
             continue
           }
           
-          val sdp = buildSdp(spspps.first, spspps.second)
+          val sdp = buildSdp(codecConfig)
           writeRtsp(out, cseq, StatusLine.OK, listOf("Content-Base: rtsp://$clientIp:${port}/live/", "Content-Type: application/sdp"), sdp)
         }
         "SETUP" -> {
@@ -160,10 +211,10 @@ class RtspServerWrapper(
   }
 
   private fun streamLoop(out: OutputStream, channel: Int) {
-    val sender = com.qnvr.stream.RtpStreamSender(out)  // 更新类引用
+    val sender = com.qnvr.stream.RtpStreamSender(out, mimeType)  // Pass mimeType
     while (true) {
       try {
-        val frame = encoder.poll() ?: continue
+        val frame = encoder.poll(50000) ?: continue // Wait up to 50ms
         val nals = splitAnnexB(frame.data)
         val ts90k = ((frame.timeUs / 1000L) * 90L).toInt()
         for (nal in nals) sender.sendNal(nal, ts90k, channel)
@@ -188,18 +239,22 @@ class RtspServerWrapper(
     out.flush()
   }
 
-  private enum class StatusLine(val code: Int, val text: String) { OK(200, "OK"), NotAllowed(405, "Method Not Allowed"), Unauthorized(401, "Unauthorized") }
+  private enum class StatusLine(val code: Int, val text: String) { OK(200, "OK"), NotAllowed(405, "Method Not Allowed"), Unauthorized(401, "Unauthorized"), ServerError(500, "Internal Server Error") }
 
-  private fun buildSdp(sps: ByteArray?, pps: ByteArray?): String {
+  private fun buildSdp(config: com.qnvr.stream.VideoEncoder.CodecConfig?): String {
+    val sps = config?.sps
+    val pps = config?.pps
+    val vps = config?.vps
+    
     val spsB64 = if (sps != null) android.util.Base64.encodeToString(sps, android.util.Base64.NO_WRAP) else ""
     val ppsB64 = if (pps != null) android.util.Base64.encodeToString(pps, android.util.Base64.NO_WRAP) else ""
+    val vpsB64 = if (vps != null) android.util.Base64.encodeToString(vps, android.util.Base64.NO_WRAP) else ""
     
     // 根据MIME类型设置SDP参数
     val (rtpmap, fmtp) = when (mimeType) {
       MediaFormat.MIMETYPE_VIDEO_HEVC -> {
         val rtpmap = "a=rtpmap:96 H265/90000\r\n"
-        // HEVC可能需要VPS, SPS, PPS
-        val fmtp = "a=fmtp:96 sprop-vps=;sprop-sps=$spsB64;sprop-pps=$ppsB64\r\n"
+        val fmtp = "a=fmtp:96 sprop-vps=$vpsB64;sprop-sps=$spsB64;sprop-pps=$ppsB64\r\n"
         Pair(rtpmap, fmtp)
       }
       MediaFormat.MIMETYPE_VIDEO_VP8 -> {
@@ -233,15 +288,37 @@ class RtspServerWrapper(
   private fun splitAnnexB(data: ByteArray): List<ByteArray> {
     val out = mutableListOf<ByteArray>()
     var i = 0
-    while (i + 4 < data.size) {
-      if (data[i].toInt() == 0 && data[i + 1].toInt() == 0 && data[i + 2].toInt() == 0 && data[i + 3].toInt() == 1) {
+    while (i + 2 < data.size) {
+      // Check for 00 00 00 01 (4 bytes)
+      if (i + 3 < data.size && data[i].toInt() == 0 && data[i + 1].toInt() == 0 && data[i + 2].toInt() == 0 && data[i + 3].toInt() == 1) {
         val start = i + 4
         var j = start
-        while (j + 4 < data.size && !(data[j].toInt() == 0 && data[j + 1].toInt() == 0 && data[j + 2].toInt() == 0 && data[j + 3].toInt() == 1)) j++
-        val nal = data.copyOfRange(start, if (j + 4 < data.size) j else data.size)
+        while (j + 2 < data.size) {
+          if (j + 3 < data.size && data[j].toInt() == 0 && data[j + 1].toInt() == 0 && data[j + 2].toInt() == 0 && data[j + 3].toInt() == 1) break
+          if (data[j].toInt() == 0 && data[j + 1].toInt() == 0 && data[j + 2].toInt() == 1) break
+          j++
+        }
+        val end = if (j + 2 < data.size) j else data.size
+        val nal = data.copyOfRange(start, end)
         out.add(nal)
         i = j
-      } else i++
+      } 
+      // Check for 00 00 01 (3 bytes)
+      else if (data[i].toInt() == 0 && data[i + 1].toInt() == 0 && data[i + 2].toInt() == 1) {
+        val start = i + 3
+        var j = start
+        while (j + 2 < data.size) {
+          if (j + 3 < data.size && data[j].toInt() == 0 && data[j + 1].toInt() == 0 && data[j + 2].toInt() == 0 && data[j + 3].toInt() == 1) break
+          if (data[j].toInt() == 0 && data[j + 1].toInt() == 0 && data[j + 2].toInt() == 1) break
+          j++
+        }
+        val end = if (j + 2 < data.size) j else data.size
+        val nal = data.copyOfRange(start, end)
+        out.add(nal)
+        i = j
+      } else {
+        i++
+      }
     }
     return out
   }

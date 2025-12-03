@@ -19,14 +19,52 @@ class EncoderManager {
                 for (type in types) {
                     // 只关注视频编码器
                     if (type.startsWith("video/")) {
-                        val name = codec.name
-                        val isHardwareAccelerated = isHardwareAccelerated(codec)
-                        encoders.add(EncoderInfo(name, type, isHardwareAccelerated))
+                        try {
+                            val caps = codec.getCapabilitiesForType(type)
+                            val videoCaps = caps.videoCapabilities
+                            val colorFormats = caps.colorFormats
+                            
+                            val name = codec.name
+                            val isHardwareAccelerated = isHardwareAccelerated(codec)
+                            
+                            encoders.add(EncoderInfo(
+                                name, 
+                                type, 
+                                isHardwareAccelerated,
+                                videoCaps.supportedWidths,
+                                videoCaps.supportedHeights,
+                                videoCaps.bitrateRange,
+                                colorFormats
+                            ))
+                        } catch (e: Exception) {
+                            android.util.Log.e("EncoderManager", "Failed to get capabilities for $type on ${codec.name}", e)
+                        }
                     }
                 }
             }
 
             return encoders
+        }
+
+        // 根据名称获取编码器信息
+        fun getEncoderByName(name: String): EncoderInfo? {
+            return getSupportedEncoders().find { it.name == name }
+        }
+
+        // 获取推荐的编码器
+        fun getBestEncoder(mimeType: String, preferHardware: Boolean = true): EncoderInfo? {
+            val encoders = getSupportedEncoders().filter { it.mimeType == mimeType }
+            
+            if (encoders.isEmpty()) return null
+            
+            // 1. 尝试找到硬件编码器
+            if (preferHardware) {
+                val hw = encoders.find { it.isHardwareAccelerated }
+                if (hw != null) return hw
+            }
+            
+            // 2. 如果没有硬件编码器或不强制硬件，返回列表中的第一个
+            return encoders.firstOrNull()
         }
 
         // 判断是否为硬件加速编码器
@@ -68,7 +106,11 @@ class EncoderManager {
 data class EncoderInfo(
     val name: String,
     val mimeType: String,
-    val isHardwareAccelerated: Boolean
+    val isHardwareAccelerated: Boolean,
+    val supportedWidths: android.util.Range<Int>? = null,
+    val supportedHeights: android.util.Range<Int>? = null,
+    val bitrateRange: android.util.Range<Int>? = null,
+    val colorFormats: IntArray? = null
 ) {
     fun getDisplayName(): String {
         val type = if (isHardwareAccelerated) "硬件" else "软件"
@@ -79,6 +121,10 @@ data class EncoderInfo(
             MediaFormat.MIMETYPE_VIDEO_VP9 -> "VP9"
             else -> mimeType
         }
-        return "$formatName ($type)"
+        return "$formatName ($type) - $name"
+    }
+    
+    override fun toString(): String {
+        return "EncoderInfo(name='$name', mimeType='$mimeType', hw=$isHardwareAccelerated, w=$supportedWidths, h=$supportedHeights, bitrate=$bitrateRange)"
     }
 }

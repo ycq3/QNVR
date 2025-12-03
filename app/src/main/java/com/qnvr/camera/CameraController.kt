@@ -37,6 +37,7 @@ class CameraController(private val context: Context) {
   private var showDeviceName = false
   private var fps = 30
   private var enableRtspWatermark = true  // 新增：控制RTSP流是否添加水印
+  private var rtspEncoder: com.qnvr.stream.VideoEncoder? = null
   private val latestPreviewJpeg = AtomicReference<ByteArray?>(null)
   private var sessionTargets: List<Surface> = emptyList()
 
@@ -84,9 +85,29 @@ class CameraController(private val context: Context) {
     imageReader = ImageReader.newInstance(preferred.width, preferred.height, android.graphics.ImageFormat.YUV_420_888, 3)
     imageReader!!.setOnImageAvailableListener({ r ->
       val img = r.acquireLatestImage() ?: return@setOnImageAvailableListener
-      val data = yuvToJpeg(img)
+      
+      val width = img.width
+      val height = img.height
+      val nv21 = yuv420ToNv21(img)
       img.close()
-      val withWatermark = if (watermark) addTimeWatermark(data) else data
+
+      // RTSP Stream feeding
+      if (enableRtspWatermark && rtspEncoder != null) {
+          try {
+              val watermarked = addWatermarkToNv21(nv21, width, height)
+              rtspEncoder?.feedFrame(watermarked, System.nanoTime() / 1000)
+          } catch (e: Exception) {
+              io.sentry.Sentry.captureException(e)
+          }
+      }
+
+      // HTTP Preview (JPEG)
+      val yuvImage = android.graphics.YuvImage(nv21, android.graphics.ImageFormat.NV21, width, height, null)
+      val out = ByteArrayOutputStream()
+      yuvImage.compressToJpeg(android.graphics.Rect(0, 0, width, height), 70, out)
+      val jpegData = out.toByteArray()
+
+      val withWatermark = if (watermark) addTimeWatermark(jpegData) else jpegData
       latestPreviewJpeg.set(withWatermark)
     }, handler)
   }
@@ -95,7 +116,9 @@ class CameraController(private val context: Context) {
     val device = cameraDevice ?: return
     val targets = mutableListOf<Surface>()
     imageReader?.surface?.let { targets.add(it) }
-    encoderSurface?.let { targets.add(it) }
+    if (!enableRtspWatermark) {
+      encoderSurface?.let { targets.add(it) }
+    }
     sessionTargets = targets.toList()
     device.createCaptureSession(sessionTargets, object : CameraCaptureSession.StateCallback() {
       override fun onConfigured(s: CameraCaptureSession) {
@@ -152,6 +175,12 @@ class CameraController(private val context: Context) {
   fun setRtspWatermarkEnabled(enabled: Boolean) {
     enableRtspWatermark = enabled
   }
+
+  fun isRtspWatermarkEnabled(): Boolean = enableRtspWatermark
+
+  fun setRtspEncoder(encoder: com.qnvr.stream.VideoEncoder?) {
+    rtspEncoder = encoder
+  }
   
   fun setDeviceName(name: String) { deviceName = name }
   fun setShowDeviceName(show: Boolean) { showDeviceName = show }
@@ -190,21 +219,18 @@ class CameraController(private val context: Context) {
   fun addWatermarkToNv21(nv21: ByteArray, width: Int, height: Int): ByteArray {
     if (!enableRtspWatermark) return nv21
     
-    // 创建YUV图像
+    // 1. NV21 -> Bitmap via JPEG (slow but simple)
     val yuvImage = android.graphics.YuvImage(nv21, android.graphics.ImageFormat.NV21, width, height, null)
-    
-    // 将YUV转换为JPEG再转换为Bitmap
     val outputStream = java.io.ByteArrayOutputStream()
     yuvImage.compressToJpeg(android.graphics.Rect(0, 0, width, height), 100, outputStream)
     val jpegData = outputStream.toByteArray()
     
-    // 从JPEG创建Bitmap
-    val bitmap = android.graphics.BitmapFactory.decodeByteArray(jpegData, 0, jpegData.size)
-    val mutableBitmap = bitmap.copy(android.graphics.Bitmap.Config.ARGB_8888, true)
+    val bitmap = BitmapFactory.decodeByteArray(jpegData, 0, jpegData.size)
+    val mutableBitmap = bitmap.copy(Bitmap.Config.ARGB_8888, true)
     
-    // 在Bitmap上绘制水印
-    val canvas = android.graphics.Canvas(mutableBitmap)
-    val paint = android.graphics.Paint()
+    // 2. Draw Watermark
+    val canvas = Canvas(mutableBitmap)
+    val paint = Paint()
     paint.color = android.graphics.Color.WHITE
     paint.textSize = 32f
     paint.isAntiAlias = true
@@ -216,13 +242,41 @@ class CameraController(private val context: Context) {
       canvas.drawText(deviceName, 20f, 40f, paint)
     }
     
-    // 将带水印的Bitmap转换回JPEG
-    val watermarkedOutputStream = java.io.ByteArrayOutputStream()
-    mutableBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 70, watermarkedOutputStream)
-    
-    // 注意：这里简化处理，实际应用中可能需要将JPEG转换回YUV格式
-    // 为了保持接口一致性，我们返回处理后的JPEG数据
-    return watermarkedOutputStream.toByteArray()
+    // 3. Bitmap -> NV21
+    return getNv21FromBitmap(mutableBitmap, width, height)
+  }
+
+  private fun getNv21FromBitmap(bitmap: Bitmap, width: Int, height: Int): ByteArray {
+    val argb = IntArray(width * height)
+    bitmap.getPixels(argb, 0, width, 0, 0, width, height)
+    val yuv = ByteArray(width * height * 3 / 2)
+    encodeYUV420SP(yuv, argb, width, height)
+    return yuv
+  }
+
+  private fun encodeYUV420SP(yuv420sp: ByteArray, argb: IntArray, width: Int, height: Int) {
+    val frameSize = width * height
+    var yIndex = 0
+    var uvIndex = frameSize
+    var index = 0
+    for (j in 0 until height) {
+      for (i in 0 until width) {
+        val R = (argb[index] and 0xff0000) shr 16
+        val G = (argb[index] and 0xff00) shr 8
+        val B = (argb[index] and 0xff)
+        
+        var Y = ((66 * R + 129 * G + 25 * B + 128) shr 8) + 16
+        var U = ((-38 * R - 74 * G + 112 * B + 128) shr 8) + 128
+        var V = ((112 * R - 94 * G - 18 * B + 128) shr 8) + 128
+        
+        yuv420sp[yIndex++] = (if (Y < 0) 0 else if (Y > 255) 255 else Y).toByte()
+        if (j % 2 == 0 && index % 2 == 0) {
+          yuv420sp[uvIndex++] = (if (V < 0) 0 else if (V > 255) 255 else V).toByte()
+          yuv420sp[uvIndex++] = (if (U < 0) 0 else if (U > 255) 255 else U).toByte()
+        }
+        index++
+      }
+    }
   }
 
   private fun yuv420ToNv21(image: Image): ByteArray {

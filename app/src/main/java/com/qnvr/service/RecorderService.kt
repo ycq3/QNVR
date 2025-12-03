@@ -114,7 +114,10 @@ class RecorderService : LifecycleService(), ConfigApplier {
         android.util.Log.i("RecorderService", "Camera started successfully")
       } catch (e: Exception) { 
         android.util.Log.e("RecorderService", "Failed to start camera", e)
-        Sentry.captureException(e) 
+        Sentry.captureException(e)
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            android.widget.Toast.makeText(this, "Camera failed to start: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+        }
         // 不抛出异常，继续尝试启动RTSP服务器
       }
       
