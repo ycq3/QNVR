@@ -71,6 +71,7 @@ class HttpServer(ctx: Context, private val camera: CameraController, private val
     json.put("bitrate", cfg.getBitrate())
     json.put("width", cfg.getWidth())
     json.put("height", cfg.getHeight())
+    json.put("fps", cfg.getFps())
     json.put("port", cfg.getPort())
     return newFixedLengthResponse(Status.OK, "application/json", json.toString())
   }
@@ -84,26 +85,27 @@ class HttpServer(ctx: Context, private val camera: CameraController, private val
     if (json.has("zoom")) camera.setZoom(json.getDouble("zoom").toFloat())
     if (json.has("watermark")) camera.setWatermarkEnabled(json.getBoolean("watermark"))
     if (json.has("port")) { val p = json.getInt("port"); cfg.setPort(p); applier.applyPort(p) }
-    if (json.has("bitrate")) { val b = json.getInt("bitrate"); cfg.setBitrate(b); applier.applyEncoder(cfg.getWidth(), cfg.getHeight(), b) }
-    if (json.has("width") && json.has("height")) { val w = json.getInt("width"); val h = json.getInt("height"); cfg.setResolution(w,h); applier.applyEncoder(w,h,cfg.getBitrate()) }
-    if (json.has("username") || json.has("password")) { 
+    if (json.has("fps")) { val f = json.getInt("fps"); cfg.setFps(f); applier.applyEncoder(cfg.getWidth(), cfg.getHeight(), cfg.getBitrate(), f) }
+    if (json.has("bitrate")) { val b = json.getInt("bitrate"); cfg.setBitrate(b); applier.applyEncoder(cfg.getWidth(), cfg.getHeight(), b, cfg.getFps()) }
+    if (json.has("width") && json.has("height")) { val w = json.getInt("width"); val h = json.getInt("height"); cfg.setResolution(w,h); applier.applyEncoder(w,h,cfg.getBitrate(), cfg.getFps()) }
+    if (json.has("username") || json.has("password")) {
       // 只有当两个字段都存在时才更新认证信息，或者使用现有值作为默认值
       val u = if (json.has("username")) json.getString("username") else cfg.getUsername()
       val p = if (json.has("password")) json.getString("password") else cfg.getPassword()
       cfg.setCredentials(u, p)
-      applier.applyCredentials(u, p) 
+      applier.applyCredentials(u, p)
     }
     if (json.has("deviceName")) { val n = json.getString("deviceName"); cfg.setDeviceName(n); applier.applyDeviceName(n) }
     if (json.has("showDeviceName")) { val s = json.getBoolean("showDeviceName"); cfg.setShowDeviceName(s); applier.applyShowDeviceName(s) }
     // 编码器配置
-    if (json.has("useSoftwareEncoder")) { val useSw = json.getBoolean("useSoftwareEncoder"); cfg.setUseSoftwareEncoder(useSw); applier.applyEncoder(cfg.getWidth(), cfg.getHeight(), cfg.getBitrate()) }
+    if (json.has("useSoftwareEncoder")) { val useSw = json.getBoolean("useSoftwareEncoder"); cfg.setUseSoftwareEncoder(useSw); applier.applyEncoder(cfg.getWidth(), cfg.getHeight(), cfg.getBitrate(), cfg.getFps()) }
     // 新增：处理编码器名称和MIME类型
-    if (json.has("encoderName")) { 
+    if (json.has("encoderName")) {
       val encName = json.optString("encoderName", "")
       cfg.setEncoderName(if (encName.isNotEmpty()) encName else null)
-      applier.applyEncoder(cfg.getWidth(), cfg.getHeight(), cfg.getBitrate()) 
+      applier.applyEncoder(cfg.getWidth(), cfg.getHeight(), cfg.getBitrate(), cfg.getFps())
     }
-    if (json.has("mimeType")) { val mimeType = json.getString("mimeType"); cfg.setMimeType(mimeType); applier.applyEncoder(cfg.getWidth(), cfg.getHeight(), cfg.getBitrate()) }
+    if (json.has("mimeType")) { val mimeType = json.getString("mimeType"); cfg.setMimeType(mimeType); applier.applyEncoder(cfg.getWidth(), cfg.getHeight(), cfg.getBitrate(), cfg.getFps()) }
     return newFixedLengthResponse(Status.OK, "application/json", "{}")
   }
 
@@ -124,6 +126,8 @@ class HttpServer(ctx: Context, private val camera: CameraController, private val
     // 新增：返回编码器名称和MIME类型
     json.put("encoderName", cfg.getEncoderName())
     json.put("mimeType", cfg.getMimeType())
+    json.put("fps", cfg.getFps())
+
     // 对用户名和密码进行URL编码以避免特殊字符问题
     val encodedUsername = java.net.URLEncoder.encode(cfg.getUsername(), "UTF-8")
     val encodedPassword = java.net.URLEncoder.encode(cfg.getPassword(), "UTF-8")

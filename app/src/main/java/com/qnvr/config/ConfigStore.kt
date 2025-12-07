@@ -11,6 +11,8 @@ class ConfigStore(ctx: Context) {
   fun setBitrate(v: Int) { sp.edit().putInt("bitrate", v).apply() }
   fun getWidth(): Int = sp.getInt("width", 1280)
   fun getHeight(): Int = sp.getInt("height", 720)
+  fun getFps(): Int = sp.getInt("fps", 30)
+  fun setFps(v: Int) { sp.edit().putInt("fps", v).apply() }
   fun setResolution(w: Int, h: Int) { sp.edit().putInt("width", w).putInt("height", h).apply() }
   fun getUsername(): String = sp.getString("username", "admin") ?: "admin"
   fun getPassword(): String = sp.getString("password", "") ?: ""

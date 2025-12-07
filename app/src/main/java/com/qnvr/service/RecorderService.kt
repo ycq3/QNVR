@@ -67,7 +67,7 @@ class RecorderService : LifecycleService(), ConfigApplier {
           cfg.getPassword(), 
           cfg.getWidth(), 
           cfg.getHeight(), 
-          30, 
+          cfg.getFps(), 
           bitrate,  // 使用验证后的码率
           cfg.getEncoderName(),  // 使用配置的编码器名称
           mimeType  // 使用验证后的MIME类型
@@ -184,7 +184,7 @@ class RecorderService : LifecycleService(), ConfigApplier {
           cfg.getPassword(), 
           cfg.getWidth(), 
           cfg.getHeight(), 
-          30, 
+          cfg.getFps(), 
           cfg.getBitrate(), 
           cfg.getEncoderName(),  // 使用配置的编码器名称
           cfg.getMimeType()      // 使用配置的MIME类型
@@ -193,12 +193,12 @@ class RecorderService : LifecycleService(), ConfigApplier {
     } catch (e: Exception) { Sentry.captureException(e) }
   }
 
-  override fun applyEncoder(width: Int, height: Int, bitrate: Int) {
+  override fun applyEncoder(width: Int, height: Int, bitrate: Int, fps: Int) {
     try { 
       rtspServer.updateEncoder(
           width, 
           height, 
-          30, 
+          fps, 
           bitrate, 
           cfg.getEncoderName(),  // 使用配置的编码器名称
           cfg.getMimeType()      // 使用配置的MIME类型

@@ -326,9 +326,24 @@ class RtspServerWrapper(
   fun updateEncoder(w: Int, h: Int, f: Int, b: Int, encName: String? = null, mime: String = MediaFormat.MIMETYPE_VIDEO_AVC) {
     width = w; height = h; fps = f; bitrate = b
     try { encoder.stop() } catch (_: Exception) {}
-    encoder = com.qnvr.stream.VideoEncoder(width, height, fps, bitrate, encName, mime)  // 修复类引用
+    
+    // Update camera FPS to match requested FPS
+    camera.setFps(fps)
+    
+    val useSurface = !camera.isRtspWatermarkEnabled()
+    encoder = com.qnvr.stream.VideoEncoder(width, height, fps, bitrate, encName, mime, useSurface)
     encoder.start()
-    camera.setEncoderSurface(encoder.getInputSurface())
+    
+    if (useSurface) {
+        val surface = encoder.getInputSurface()
+        if (surface != null) {
+            camera.setEncoderSurface(surface)
+        } else {
+             android.util.Log.e("RtspServerWrapper", "Encoder input surface is null but useSurface is true")
+        }
+    } else {
+        camera.setRtspEncoder(encoder)
+    }
   }
 
   fun updateCredentials(u: String, p: String) { username = u; password = p }
