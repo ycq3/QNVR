@@ -53,6 +53,13 @@ class CameraController(private val context: Context) {
       setShadowLayer(2f, 1f, 1f, android.graphics.Color.BLACK)
   }
   private var lastWatermarkSecond = -1L
+  
+  // Reusable buffers to avoid repeated allocations (OOM fix)
+  private var nv12Buffer: ByteArray? = null
+  private var nv21Buffer: ByteArray? = null
+  private val jpegOutputStream = ByteArrayOutputStream()
+  private var lastPreviewTime = 0L
+  private val previewFps = 5 // Limit JPEG preview to 5 FPS to reduce memory pressure
 
   fun setEncoderSurface(surface: android.view.Surface) {
     encoderSurface = surface
@@ -109,6 +116,14 @@ class CameraController(private val context: Context) {
     cameraDevice?.close()
     imageReader?.close()
     handlerThread?.quitSafely()
+    
+    // Clean up reusable buffers to free memory
+    nv12Buffer = null
+    nv21Buffer = null
+    jpegOutputStream.reset()
+    watermarkBitmap?.recycle()
+    watermarkBitmap = null
+    watermarkCanvas = null
   }
 
   private fun setupReaders() {
@@ -146,34 +161,30 @@ class CameraController(private val context: Context) {
           }
       }
 
-      // HTTP Preview (JPEG) - only if needed
-      // Note: This uses NV12 now, YuvImage supports NV21. 
-      // NV12 and NV21 only differ in UV order. YuvImage expects NV21.
-      // If we want preview to work, we might need to swap UV for preview or use a method that handles NV12.
-      // However, for performance, we should prioritize RTSP. 
-      // Let's create a quick NV12->NV21 for preview if needed, or just let it have swapped colors (Blue/Red swapped).
-      // Given the user complained about RTSP lag, we prioritize that.
-      // For preview, let's just swap the bytes quickly or accept wrong colors for now to save CPU.
-      // Actually, YuvImage officially only supports NV21.
-      
-      if (latestPreviewJpeg.get() == null || watermark) { // Simple check to avoid work if nobody watching? No, preview is polled.
-           // For preview, we can just use the NV12 buffer. Colors will be swapped (Red<->Blue), but it's fast.
-           // Or we can swap UV in place if we don't mind messing up RTSP (we can't).
-           // Let's clone for preview if we really need correct colors, or just live with swapped colors for preview.
-           // Or better: write a quick swap routine.
+      // HTTP Preview (JPEG) - Rate limited to reduce memory pressure
+      // Only generate preview at 5 FPS (200ms interval) to avoid excessive allocations
+      if (now - lastPreviewTime >= (1000 / previewFps)) {
+           lastPreviewTime = now
            
-           // For now, let's keep RTSP fast.
+           // Reuse NV21 buffer to avoid repeated allocations
+           val nv21 = if (nv21Buffer != null && nv21Buffer!!.size == nv12.size) {
+               nv21Buffer!!
+           } else {
+               ByteArray(nv12.size).also { nv21Buffer = it }
+           }
+           
            // Convert NV12 to NV21 for preview (Swap U/V)
-           val nv21 = ByteArray(nv12.size)
            System.arraycopy(nv12, 0, nv21, 0, width * height) // Copy Y
            for (i in width * height until nv12.size step 2) { // Swap UV
                nv21[i] = nv12[i + 1]
                nv21[i + 1] = nv12[i]
            }
+           
            val yuvImage = android.graphics.YuvImage(nv21, android.graphics.ImageFormat.NV21, width, height, null)
-           val out = ByteArrayOutputStream()
-           yuvImage.compressToJpeg(android.graphics.Rect(0, 0, width, height), 70, out)
-           val jpegData = out.toByteArray()
+           // Reuse ByteArrayOutputStream to avoid repeated allocations
+           jpegOutputStream.reset()
+           yuvImage.compressToJpeg(android.graphics.Rect(0, 0, width, height), 70, jpegOutputStream)
+           val jpegData = jpegOutputStream.toByteArray()
            latestPreviewJpeg.set(jpegData)
       }
     }, handler)
@@ -279,7 +290,14 @@ class CameraController(private val context: Context) {
     val height = image.height
     val ySize = width * height
     val uvSize = width * height / 2
-    val nv12 = ByteArray(ySize + uvSize)
+    val totalSize = ySize + uvSize
+    
+    // Reuse buffer if possible to avoid repeated allocations
+    val nv12 = if (nv12Buffer != null && nv12Buffer!!.size == totalSize) {
+        nv12Buffer!!
+    } else {
+        ByteArray(totalSize).also { nv12Buffer = it }
+    }
 
     val yBuffer = image.planes[0].buffer
     val uBuffer = image.planes[1].buffer
