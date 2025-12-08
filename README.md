@@ -21,7 +21,7 @@ QNVR是一个基于Android平台的网络视频监控应用，支持通过RTSP�
 
 1. 克隆项目到本地
    ```bash
-   git clone https://github.com/yourusername/qnvr.git
+   git clone https://github.com/ycq3/qnvr.git
    cd qnvr
    ```
 
