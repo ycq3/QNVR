@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a73e8"/>
+      <stop offset="100%" style="stop-color:#0d47a1"/>
+    </linearGradient>
+    <linearGradient id="shieldGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#4fc3f7"/>
+      <stop offset="100%" style="stop-color:#29b6f6"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- Background circle -->
+  <circle cx="96" cy="96" r="90" fill="url(#bgGrad)"/>
+  
+  <!-- Shield shape (home protection) -->
+  <path d="M96 28 L152 52 L152 100 C152 130 125 158 96 168 C67 158 40 130 40 100 L40 52 Z" 
+        fill="url(#shieldGrad)" opacity="0.9"/>
+  
+  <!-- Camera icon inside shield -->
+  <rect x="60" y="70" width="50" height="38" rx="6" fill="#fff"/>
+  <polygon points="110,78 130,68 130,110 110,100" fill="#fff"/>
+  <circle cx="85" cy="89" r="10" fill="#1a73e8"/>
+  <circle cx="85" cy="89" r="5" fill="#fff"/>
+  
+  <!-- AI indicator (small chip/brain) -->
+  <circle cx="130" cy="140" r="18" fill="#ff9800"/>
+  <text x="130" y="146" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="#fff" text-anchor="middle">AI</text>
+  
+  <!-- Free badge -->
+  <rect x="20" y="145" width="45" height="22" rx="4" fill="#4caf50"/>
+  <text x="42" y="161" font-family="Arial, sans-serif" font-size="12" font-weight="bold" fill="#fff" text-anchor="middle">免费</text>
+</svg>

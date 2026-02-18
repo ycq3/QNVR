@@ -18,7 +18,7 @@ android {
     minSdk = 24
     targetSdk = 34
     versionCode = 1
-    versionName = "0.1.0"
+    versionName = "1.0.0"
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     val dsn = props.getProperty("sentryDsn") ?: System.getenv("SENTRY_DSN") ?: ""
     buildConfigField("String", "SENTRY_DSN", "\"$dsn\"")
