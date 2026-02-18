@@ -138,6 +138,17 @@ class HttpServer(ctx: Context, private val camera: CameraController, private val
       applier.applyEncoder(cfg.getWidth(), cfg.getHeight(), cfg.getBitrate(), cfg.getFps())
     }
     if (json.has("mimeType")) { val mimeType = json.getString("mimeType"); cfg.setMimeType(mimeType); applier.applyEncoder(cfg.getWidth(), cfg.getHeight(), cfg.getBitrate(), cfg.getFps()) }
+    if (json.has("pushEnabled") || json.has("pushUrl") || json.has("pushUseRemoteConfig") || json.has("pushConfigUrl")) {
+      val enabled = if (json.has("pushEnabled")) json.getBoolean("pushEnabled") else cfg.isPushEnabled()
+      val pushUrl = if (json.has("pushUrl")) json.optString("pushUrl", "") else cfg.getPushUrl()
+      val useRemote = if (json.has("pushUseRemoteConfig")) json.getBoolean("pushUseRemoteConfig") else cfg.isPushUseRemoteConfig()
+      val configUrl = if (json.has("pushConfigUrl")) json.optString("pushConfigUrl", "") else cfg.getPushConfigUrl()
+      cfg.setPushEnabled(enabled)
+      cfg.setPushUrl(pushUrl)
+      cfg.setPushUseRemoteConfig(useRemote)
+      cfg.setPushConfigUrl(configUrl)
+      applier.applyPushConfig(enabled, pushUrl, useRemote, configUrl)
+    }
     return newFixedLengthResponse(Status.OK, "application/json", "{}")
   }
 
@@ -157,6 +168,10 @@ class HttpServer(ctx: Context, private val camera: CameraController, private val
     json.put("encoderName", cfg.getEncoderName())
     json.put("mimeType", cfg.getMimeType())
     json.put("fps", cfg.getFps())
+    json.put("pushEnabled", cfg.isPushEnabled())
+    json.put("pushUrl", cfg.getPushUrl())
+    json.put("pushUseRemoteConfig", cfg.isPushUseRemoteConfig())
+    json.put("pushConfigUrl", cfg.getPushConfigUrl())
 
     // 对用户名和密码进行URL编码以避免特殊字符问题
     val encodedUsername = java.net.URLEncoder.encode(cfg.getUsername(), "UTF-8")

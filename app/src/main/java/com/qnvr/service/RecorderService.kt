@@ -22,8 +22,12 @@ import com.qnvr.stream.RtspServerWrapper
 import com.qnvr.web.HttpServer
 import com.qnvr.config.ConfigStore
 import com.qnvr.config.ConfigApplier
+import com.qnvr.receiver.ServiceRestartReceiver
+import com.qnvr.util.SettingsManager
 import io.sentry.Sentry
 import android.content.SharedPreferences
+import org.json.JSONObject
+import java.net.URL
 
 class RecorderService : LifecycleService(), ConfigApplier, SharedPreferences.OnSharedPreferenceChangeListener {
   private lateinit var wakeLock: PowerManager.WakeLock
@@ -35,10 +39,16 @@ class RecorderService : LifecycleService(), ConfigApplier, SharedPreferences.OnS
   private lateinit var statsMonitor: com.qnvr.StatsMonitor
   private lateinit var sp: SharedPreferences
   
+  private var isStoppingManually = false
+  
   companion object {
       private var instance: RecorderService? = null
       
       fun getInstance(): RecorderService? = instance
+      
+      fun stopManually() {
+          instance?.isStoppingManually = true
+      }
   }
 
   override fun onCreate() {
@@ -89,6 +99,7 @@ class RecorderService : LifecycleService(), ConfigApplier, SharedPreferences.OnS
             mimeType
         )
         rtspServer.start()
+        applyPushConfig(cfg.isPushEnabled(), cfg.getPushUrl(), cfg.isPushUseRemoteConfig(), cfg.getPushConfigUrl())
         
         val actualEncoderName = rtspServer.getActualEncoderName() ?: encoderName
         statsMonitor.setEncoderInfo(actualEncoderName, mimeType, cfg.getWidth(), cfg.getHeight(), bitrate)
@@ -182,6 +193,13 @@ class RecorderService : LifecycleService(), ConfigApplier, SharedPreferences.OnS
     try { httpServer.shutdown() } catch (_: Exception) {}
     try { camera.stop() } catch (_: Exception) {}
     if (wakeLock.isHeld) wakeLock.release()
+    
+    if (!isStoppingManually && SettingsManager.isBootStartEnabled(this)) {
+      android.util.Log.i("RecorderService", "Service destroyed unexpectedly, scheduling restart")
+      val restartIntent = Intent(ServiceRestartReceiver.ACTION_RESTART_SERVICE)
+      restartIntent.setPackage(packageName)
+      sendBroadcast(restartIntent)
+    }
   }
   
   fun getStats(): com.qnvr.StatsData {
@@ -209,6 +227,7 @@ class RecorderService : LifecycleService(), ConfigApplier, SharedPreferences.OnS
           cfg.getMimeType()      // 使用配置的MIME类型
       )
       rtspServer.start() 
+      applyPushConfig(cfg.isPushEnabled(), cfg.getPushUrl(), cfg.isPushUseRemoteConfig(), cfg.getPushConfigUrl())
     } catch (e: Exception) { Sentry.captureException(e) }
   }
 
@@ -228,6 +247,10 @@ class RecorderService : LifecycleService(), ConfigApplier, SharedPreferences.OnS
   override fun applyDeviceName(name: String) { try { camera.setDeviceName(name) } catch (_: Exception) {} }
   override fun applyShowDeviceName(show: Boolean) { try { camera.setShowDeviceName(show) } catch (_: Exception) {} }
   override fun applyCredentials(username: String, password: String) { try { rtspServer.updateCredentials(username, password) } catch (_: Exception) {} }
+  override fun applyPushConfig(enabled: Boolean, url: String?, useRemoteConfig: Boolean, configUrl: String?) {
+    val resolved = resolvePushConfig(enabled, url, useRemoteConfig, configUrl)
+    try { rtspServer.updatePushConfig(resolved.first, resolved.second) } catch (_: Exception) {}
+  }
 
   private val configHandler = android.os.Handler(android.os.Looper.getMainLooper())
   private val configRunnable = Runnable {
@@ -254,6 +277,63 @@ class RecorderService : LifecycleService(), ConfigApplier, SharedPreferences.OnS
           "deviceName" -> applyDeviceName(cfg.getDeviceName())
           "showDeviceName" -> applyShowDeviceName(cfg.isShowDeviceName())
           "username", "password" -> applyCredentials(cfg.getUsername(), cfg.getPassword())
+          "pushEnabled", "pushUrl", "pushUseRemoteConfig", "pushConfigUrl" -> {
+              applyPushConfig(cfg.isPushEnabled(), cfg.getPushUrl(), cfg.isPushUseRemoteConfig(), cfg.getPushConfigUrl())
+          }
       }
+  }
+
+  private fun resolvePushConfig(enabled: Boolean, url: String?, useRemoteConfig: Boolean, configUrl: String?): Pair<Boolean, String?> {
+    var finalEnabled = enabled
+    var finalUrl = url
+    if (useRemoteConfig && !configUrl.isNullOrBlank()) {
+      val remote = fetchRemotePushConfig(configUrl)
+      if (remote != null) {
+        if (remote.has("enabled")) finalEnabled = remote.optBoolean("enabled", finalEnabled)
+        val remoteUrl = when {
+          remote.has("pushUrl") -> remote.optString("pushUrl", "")
+          remote.has("url") -> remote.optString("url", "")
+          else -> ""
+        }
+        if (remoteUrl.isNotBlank()) {
+          val user = if (remote.has("username")) remote.optString("username", "") else ""
+          val pass = if (remote.has("password")) remote.optString("password", "") else ""
+          finalUrl = applyAuthToUrl(remoteUrl, user, pass)
+        }
+      }
+    }
+    return Pair(finalEnabled, finalUrl)
+  }
+
+  private fun fetchRemotePushConfig(url: String): JSONObject? {
+    return try {
+      val conn = URL(url).openConnection()
+      conn.connectTimeout = 5000
+      conn.readTimeout = 5000
+      val text = conn.getInputStream().bufferedReader().use { it.readText() }
+      JSONObject(text)
+    } catch (_: Exception) {
+      null
+    }
+  }
+
+  private fun applyAuthToUrl(url: String, username: String, password: String): String {
+    if (username.isBlank() && password.isBlank()) return url
+    return try {
+      val uri = java.net.URI(url)
+      val userInfo = if (username.isNotBlank() || password.isNotBlank()) {
+        "${java.net.URLEncoder.encode(username, "UTF-8")}:${java.net.URLEncoder.encode(password, "UTF-8")}"
+      } else {
+        uri.userInfo ?: ""
+      }
+      val host = uri.host ?: return url
+      val port = if (uri.port > 0) ":${uri.port}" else ""
+      val path = uri.rawPath ?: ""
+      val query = if (uri.rawQuery != null) "?${uri.rawQuery}" else ""
+      val userPart = if (userInfo.isNotBlank()) "$userInfo@" else ""
+      "${uri.scheme}://$userPart$host$port$path$query"
+    } catch (_: Exception) {
+      url
+    }
   }
 }

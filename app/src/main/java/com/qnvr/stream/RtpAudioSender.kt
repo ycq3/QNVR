@@ -2,7 +2,6 @@ package com.qnvr.stream
 
 import java.io.OutputStream
 import kotlin.random.Random
-import io.sentry.Sentry
 
 class RtpAudioSender(
     private val out: OutputStream,
@@ -12,22 +11,18 @@ class RtpAudioSender(
     private val ssrc = Random.nextInt()
 
     fun sendAacFrame(aac: ByteArray, timestamp: Int, channel: Int) {
-        try {
-            val auSize = aac.size * 8
-            val auHeader = (auSize and 0x1FFF) shl 3
-            val payload = ByteArray(4 + aac.size)
-            payload[0] = 0
-            payload[1] = 16
-            payload[2] = ((auHeader shr 8) and 0xFF).toByte()
-            payload[3] = (auHeader and 0xFF).toByte()
-            System.arraycopy(aac, 0, payload, 4, aac.size)
+        val auSize = aac.size * 8
+        val auHeader = (auSize and 0x1FFF) shl 3
+        val payload = ByteArray(4 + aac.size)
+        payload[0] = 0
+        payload[1] = 16
+        payload[2] = ((auHeader shr 8) and 0xFF).toByte()
+        payload[3] = (auHeader and 0xFF).toByte()
+        System.arraycopy(aac, 0, payload, 4, aac.size)
 
-            val header = rtpHeader(timestamp)
-            val rtp = header + payload
-            writeInterleaved(channel, rtp)
-        } catch (e: Exception) {
-            Sentry.captureException(e)
-        }
+        val header = rtpHeader(timestamp)
+        val rtp = header + payload
+        writeInterleaved(channel, rtp)
     }
 
     private fun rtpHeader(ts: Int): ByteArray {
@@ -49,7 +44,7 @@ class RtpAudioSender(
     }
 
     private fun writeInterleaved(channel: Int, payload: ByteArray) {
-        try {
+        synchronized(out) {
             val header = ByteArray(4)
             header[0] = 0x24
             header[1] = channel.toByte()
@@ -58,8 +53,6 @@ class RtpAudioSender(
             out.write(header)
             out.write(payload)
             out.flush()
-        } catch (e: Exception) {
-            Sentry.captureException(e)
         }
     }
 }

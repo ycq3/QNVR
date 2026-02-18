@@ -122,14 +122,16 @@ class RtpStreamSender(
 
   private fun writeInterleaved(channel: Int, payload: ByteArray) {
     try {
-      val header = ByteArray(4)
-      header[0] = 0x24
-      header[1] = channel.toByte()
-      header[2] = ((payload.size shr 8) and 0xFF).toByte()
-      header[3] = (payload.size and 0xFF).toByte()
-      out.write(header)
-      out.write(payload)
-      out.flush()
+      synchronized(out) {
+        val header = ByteArray(4)
+        header[0] = 0x24
+        header[1] = channel.toByte()
+        header[2] = ((payload.size shr 8) and 0xFF).toByte()
+        header[3] = (payload.size and 0xFF).toByte()
+        out.write(header)
+        out.write(payload)
+        out.flush()
+      }
     } catch (e: Exception) {
       Sentry.captureException(e)
     }

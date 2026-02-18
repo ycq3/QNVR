@@ -6,4 +6,5 @@ interface ConfigApplier {
   fun applyDeviceName(name: String)
   fun applyShowDeviceName(show: Boolean)
   fun applyCredentials(username: String, password: String)
+  fun applyPushConfig(enabled: Boolean, url: String?, useRemoteConfig: Boolean, configUrl: String?)
 }

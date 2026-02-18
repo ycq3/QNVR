@@ -45,6 +45,15 @@ class ConfigStore(ctx: Context) {
     }
     sp.edit().putString("mimeType", validMimeType).apply() 
   }
+
+  fun isPushEnabled(): Boolean = sp.getBoolean("pushEnabled", false)
+  fun setPushEnabled(v: Boolean) { sp.edit().putBoolean("pushEnabled", v).apply() }
+  fun getPushUrl(): String = sp.getString("pushUrl", "") ?: ""
+  fun setPushUrl(v: String) { sp.edit().putString("pushUrl", v).apply() }
+  fun isPushUseRemoteConfig(): Boolean = sp.getBoolean("pushUseRemoteConfig", false)
+  fun setPushUseRemoteConfig(v: Boolean) { sp.edit().putBoolean("pushUseRemoteConfig", v).apply() }
+  fun getPushConfigUrl(): String = sp.getString("pushConfigUrl", "") ?: ""
+  fun setPushConfigUrl(v: String) { sp.edit().putString("pushConfigUrl", v).apply() }
   
   // 根据编码格式获取合适的默认码率
   fun getBitrateForMimeType(mimeType: String = getMimeType()): Int {

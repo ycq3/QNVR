@@ -41,6 +41,9 @@ class RtspServerWrapper(
   private var lowPowerMode = false
   private var originalFps = fps
   private var originalBitrate = bitrate
+  private var pushClient: RtspPushClient? = null
+  private var pushEnabled = false
+  private var pushUrl: String? = null
 
   fun start() {
     logAvailableEncoders()
@@ -138,6 +141,7 @@ class RtspServerWrapper(
     android.util.Log.i("RtspServerWrapper", "Stopping RTSP server")
     running.set(false)
     try { server?.close() } catch (_: Exception) {}
+    stopPushInternal()
     if (::encoder.isInitialized) {
         encoder.stop()
     }
@@ -207,6 +211,8 @@ class RtspServerWrapper(
     var audioChannel = 2
     var audioSetup = false
     var streaming = false
+    
+    android.util.Log.i("RtspServerWrapper", "handleClient started - audioEnabled: $audioEnabled, audioEncoder initialized: ${this::audioEncoder.isInitialized}")
     
     // Check if encoder is ready
     var codecConfig: com.qnvr.stream.VideoEncoder.CodecConfig? = null
@@ -283,16 +289,32 @@ class RtspServerWrapper(
         }
         "SETUP" -> {
           val transport = headers["Transport"] ?: ""
+          android.util.Log.i("RtspServerWrapper", "SETUP request - Transport: $transport, URL: ${parts.getOrNull(1)}")
+          
           val inter = Regex("interleaved=(\\d+)-(\\d+)").find(transport)
+          val isTcp = transport.contains("RTP/AVP/TCP", ignoreCase = true) || inter != null
+          
+          if (!isTcp) {
+            android.util.Log.w("RtspServerWrapper", "Client requested UDP transport, returning 461 Unsupported Transport")
+            writeRtsp(out, cseq, StatusLine.UnsupportedTransport, emptyList())
+            continue
+          }
+          
           val interleaved = inter?.groupValues?.get(1)?.toIntOrNull() ?: 0
           val trackId = getTrackId(parts.getOrNull(1))
+          
+          android.util.Log.i("RtspServerWrapper", "SETUP - trackId: $trackId, interleaved: $interleaved")
+          
           if (trackId == 1) {
             audioChannel = interleaved
             audioSetup = true
           } else {
             videoChannel = interleaved
           }
-          writeRtsp(out, cseq, StatusLine.OK, listOf("Transport: RTP/AVP/TCP;unicast;interleaved=$interleaved-${interleaved+1}", "Session: $sessionId"))
+          
+          val responseTransport = "Transport: RTP/AVP/TCP;unicast;interleaved=$interleaved-${interleaved+1}"
+          android.util.Log.i("RtspServerWrapper", "SETUP response - $responseTransport")
+          writeRtsp(out, cseq, StatusLine.OK, listOf(responseTransport, "Session: $sessionId"))
         }
         "PLAY" -> {
           writeRtsp(out, cseq, StatusLine.OK, listOf("Range: npt=0-", "Session: $sessionId"))
@@ -315,8 +337,10 @@ class RtspServerWrapper(
           if (this::encoder.isInitialized) {
               encoder.addCallback(callback)
           }
+          android.util.Log.i("RtspServerWrapper", "PLAY - audioEnabled: $audioEnabled, audioSetup: $audioSetup, audioChannel: $audioChannel")
           if (audioEnabled && this::audioEncoder.isInitialized && audioSetup) {
               audioEncoder.addCallback(audioCallback)
+              android.util.Log.i("RtspServerWrapper", "Audio callback registered, starting audio thread on channel $audioChannel")
           }
           
           val audioThread = if (audioEnabled && this::audioEncoder.isInitialized && audioSetup) {
@@ -400,16 +424,24 @@ class RtspServerWrapper(
   private fun audioStreamLoop(out: OutputStream, channel: Int, queue: java.util.concurrent.LinkedBlockingQueue<com.qnvr.stream.AudioEncoder.EncodedAudioFrame>, config: com.qnvr.stream.AudioEncoder.AudioConfig?) {
     val sender = com.qnvr.stream.RtpAudioSender(out)
     val sampleRate = config?.sampleRate ?: 44100
+    android.util.Log.i("RtspServerWrapper", "audioStreamLoop started - channel: $channel, sampleRate: $sampleRate")
+    var frameCount = 0
     while (true) {
       if (Thread.currentThread().isInterrupted) break
       try {
         val frame = queue.poll(200, java.util.concurrent.TimeUnit.MILLISECONDS) ?: continue
         val ts = ((frame.timeUs * sampleRate) / 1_000_000L).toInt()
         sender.sendAacFrame(frame.data, ts, channel)
+        frameCount++
+        if (frameCount % 100 == 0) {
+          android.util.Log.i("RtspServerWrapper", "Audio frames sent: $frameCount")
+        }
       } catch (e: Exception) {
+        android.util.Log.e("RtspServerWrapper", "audioStreamLoop error: ${e.message}")
         break
       }
     }
+    android.util.Log.i("RtspServerWrapper", "audioStreamLoop ended - total frames: $frameCount")
   }
 
   private fun getTrackId(url: String?): Int? {
@@ -433,7 +465,7 @@ class RtspServerWrapper(
     out.flush()
   }
 
-  private enum class StatusLine(val code: Int, val text: String) { OK(200, "OK"), NotAllowed(405, "Method Not Allowed"), Unauthorized(401, "Unauthorized"), ServerError(500, "Internal Server Error") }
+  private enum class StatusLine(val code: Int, val text: String) { OK(200, "OK"), NotAllowed(405, "Method Not Allowed"), Unauthorized(401, "Unauthorized"), ServerError(500, "Internal Server Error"), UnsupportedTransport(461, "Unsupported Transport") }
 
   private fun buildSdp(config: com.qnvr.stream.VideoEncoder.CodecConfig?, audioConfig: com.qnvr.stream.AudioEncoder.AudioConfig?, serverIp: String): String {
     val sps = config?.sps
@@ -556,6 +588,7 @@ class RtspServerWrapper(
     Thread.sleep(100)
     val actualEncoderName = encoder.getSelectedEncoderName() ?: encName ?: "未知"
     camera.getStatsMonitor()?.setEncoderInfo(actualEncoderName, mime, width, height, bitrate)
+    restartPush()
   }
 
   fun updateCredentials(u: String, p: String) { username = u; password = p }
@@ -569,6 +602,27 @@ class RtspServerWrapper(
   }
 
   fun getActualPort(): Int = port
+
+  fun updatePushConfig(enabled: Boolean, url: String?) {
+    pushEnabled = enabled
+    pushUrl = url
+    restartPush()
+  }
+
+  private fun restartPush() {
+    stopPushInternal()
+    val targetUrl = pushUrl
+    if (pushEnabled && !targetUrl.isNullOrBlank() && this::encoder.isInitialized) {
+      val audio = if (audioEnabled && this::audioEncoder.isInitialized) audioEncoder else null
+      pushClient = RtspPushClient(targetUrl, encoder, audio, mimeType, audioEnabled)
+      pushClient?.start()
+    }
+  }
+
+  private fun stopPushInternal() {
+    try { pushClient?.stop() } catch (_: Exception) {}
+    pushClient = null
+  }
 
   private fun checkAuth(headers: Map<String, String>): Boolean {
     // 如果用户名和密码都为空，则不需要验证

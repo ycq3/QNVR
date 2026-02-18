@@ -9,6 +9,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
@@ -16,6 +17,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.qnvr.config.ConfigStore
 import com.qnvr.service.RecorderService
+import com.qnvr.util.SettingsManager
 import io.sentry.Sentry
 import java.net.InetAddress
 import java.net.NetworkInterface
@@ -41,6 +43,8 @@ class MainActivity : ComponentActivity() {
   private lateinit var tvCpuTemp: TextView
   private lateinit var tvBatteryTemp: TextView
   private lateinit var tvBatteryLevel: TextView
+  private lateinit var cbAutoStart: CheckBox
+  private lateinit var cbBootStart: CheckBox
   
   private val configChangeListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
     displayIpAddressAndPort(statusText)
@@ -70,10 +74,22 @@ class MainActivity : ComponentActivity() {
     tvCpuTemp = findViewById<TextView>(R.id.tvCpuTemp)
     tvBatteryTemp = findViewById<TextView>(R.id.tvBatteryTemp)
     tvBatteryLevel = findViewById<TextView>(R.id.tvBatteryLevel)
+    cbAutoStart = findViewById<CheckBox>(R.id.cbAutoStart)
+    cbBootStart = findViewById<CheckBox>(R.id.cbBootStart)
 
     val cfg = ConfigStore(this)
     val sp = getSharedPreferences("qnvr", Context.MODE_PRIVATE)
     sp.registerOnSharedPreferenceChangeListener(configChangeListener)
+
+    cbAutoStart.isChecked = SettingsManager.isAutoStartEnabled(this)
+    cbBootStart.isChecked = SettingsManager.isBootStartEnabled(this)
+
+    cbAutoStart.setOnCheckedChangeListener { _, isChecked ->
+      SettingsManager.setAutoStartEnabled(this, isChecked)
+    }
+    cbBootStart.setOnCheckedChangeListener { _, isChecked ->
+      SettingsManager.setBootStartEnabled(this, isChecked)
+    }
 
     displayIpAddressAndPort(statusText)
 
@@ -81,6 +97,10 @@ class MainActivity : ComponentActivity() {
     stop.setOnClickListener { stopService() }
     
     handler.post(updateStatsRunnable)
+
+    if (SettingsManager.isAutoStartEnabled(this)) {
+      ensurePermissionsAndStart()
+    }
   }
   
   private fun updateStatsDisplay() {
@@ -188,6 +208,7 @@ class MainActivity : ComponentActivity() {
   }
 
   private fun stopService() {
+    RecorderService.stopManually()
     val intent = Intent(this, RecorderService::class.java)
     stopService(intent)
   }
