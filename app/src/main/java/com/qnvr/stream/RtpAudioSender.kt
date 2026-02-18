@@ -11,11 +11,14 @@ class RtpAudioSender(
     private val ssrc = Random.nextInt()
 
     fun sendAacFrame(aac: ByteArray, timestamp: Int, channel: Int) {
-        val auSize = aac.size * 8
-        val auHeader = (auSize and 0x1FFF) shl 3
-        val payload = ByteArray(4 + aac.size)
-        payload[0] = 0
-        payload[1] = 16
+        val auSize = aac.size
+        
+        val auHeadersLength = 16
+        val auHeader = (auSize shl 3) or 0
+        
+        val payload = ByteArray(2 + 2 + aac.size)
+        payload[0] = ((auHeadersLength shr 8) and 0xFF).toByte()
+        payload[1] = (auHeadersLength and 0xFF).toByte()
         payload[2] = ((auHeader shr 8) and 0xFF).toByte()
         payload[3] = (auHeader and 0xFF).toByte()
         System.arraycopy(aac, 0, payload, 4, aac.size)
