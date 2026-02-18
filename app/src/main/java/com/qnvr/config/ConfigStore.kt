@@ -55,6 +55,9 @@ class ConfigStore(ctx: Context) {
   fun getPushConfigUrl(): String = sp.getString("pushConfigUrl", "") ?: ""
   fun setPushConfigUrl(v: String) { sp.edit().putString("pushConfigUrl", v).apply() }
   
+  fun isAudioEnabled(): Boolean = sp.getBoolean("audioEnabled", true)
+  fun setAudioEnabled(v: Boolean) { sp.edit().putBoolean("audioEnabled", v).apply() }
+  
   // 根据编码格式获取合适的默认码率
   fun getBitrateForMimeType(mimeType: String = getMimeType()): Int {
     return when (mimeType) {

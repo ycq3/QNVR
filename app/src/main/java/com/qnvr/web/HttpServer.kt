@@ -149,6 +149,9 @@ class HttpServer(ctx: Context, private val camera: CameraController, private val
       cfg.setPushConfigUrl(configUrl)
       applier.applyPushConfig(enabled, pushUrl, useRemote, configUrl)
     }
+    if (json.has("audioEnabled")) {
+      cfg.setAudioEnabled(json.getBoolean("audioEnabled"))
+    }
     return newFixedLengthResponse(Status.OK, "application/json", "{}")
   }
 
@@ -172,6 +175,7 @@ class HttpServer(ctx: Context, private val camera: CameraController, private val
     json.put("pushUrl", cfg.getPushUrl())
     json.put("pushUseRemoteConfig", cfg.isPushUseRemoteConfig())
     json.put("pushConfigUrl", cfg.getPushConfigUrl())
+    json.put("audioEnabled", cfg.isAudioEnabled())
 
     // 对用户名和密码进行URL编码以避免特殊字符问题
     val encodedUsername = java.net.URLEncoder.encode(cfg.getUsername(), "UTF-8")

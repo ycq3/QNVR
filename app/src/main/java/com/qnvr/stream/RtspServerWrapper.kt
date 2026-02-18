@@ -25,7 +25,8 @@ class RtspServerWrapper(
     fps: Int, 
     bitrate: Int, 
     private val encoderName: String? = null,
-    private val mimeType: String = MediaFormat.MIMETYPE_VIDEO_AVC
+    private val mimeType: String = MediaFormat.MIMETYPE_VIDEO_AVC,
+    private val enableAudio: Boolean = true
 ) {
   private var server: ServerSocket? = null
   private val running = AtomicBoolean(false)
@@ -107,7 +108,7 @@ class RtspServerWrapper(
       Sentry.captureException(e)
     }
     val audioPerm = ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
-    if (audioPerm) {
+    if (enableAudio && audioPerm) {
       try {
         audioEncoder = com.qnvr.stream.AudioEncoder()
         audioEncoder.start()
@@ -118,7 +119,11 @@ class RtspServerWrapper(
         audioEnabled = false
       }
     } else {
-      android.util.Log.w("RtspServerWrapper", "Audio permission missing; audio disabled")
+      if (!enableAudio) {
+        android.util.Log.i("RtspServerWrapper", "Audio disabled by user config")
+      } else {
+        android.util.Log.w("RtspServerWrapper", "Audio permission missing; audio disabled")
+      }
       audioEnabled = false
     }
   }

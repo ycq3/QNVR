@@ -96,7 +96,8 @@ class RecorderService : LifecycleService(), ConfigApplier, SharedPreferences.OnS
             cfg.getFps(), 
             bitrate,
             encoderName,
-            mimeType
+            mimeType,
+            cfg.isAudioEnabled()
         )
         rtspServer.start()
         applyPushConfig(cfg.isPushEnabled(), cfg.getPushUrl(), cfg.isPushUseRemoteConfig(), cfg.getPushConfigUrl())
@@ -223,8 +224,9 @@ class RecorderService : LifecycleService(), ConfigApplier, SharedPreferences.OnS
           cfg.getHeight(), 
           cfg.getFps(), 
           cfg.getBitrate(), 
-          cfg.getEncoderName(),  // 使用配置的编码器名称
-          cfg.getMimeType()      // 使用配置的MIME类型
+          cfg.getEncoderName(),
+          cfg.getMimeType(),
+          cfg.isAudioEnabled()
       )
       rtspServer.start() 
       applyPushConfig(cfg.isPushEnabled(), cfg.getPushUrl(), cfg.isPushUseRemoteConfig(), cfg.getPushConfigUrl())
