@@ -1,16 +1,20 @@
 package com.qnvr
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.widget.Button
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.qnvr.config.ConfigStore
 import com.qnvr.service.RecorderService
 import io.sentry.Sentry
 import java.net.InetAddress
@@ -29,40 +33,102 @@ class MainActivity : ComponentActivity() {
     }
   }
 
+  private lateinit var statusText: TextView
+  private lateinit var tvFps: TextView
+  private lateinit var tvCpu: TextView
+  private lateinit var tvNetwork: TextView
+  private lateinit var tvEncoder: TextView
+  private lateinit var tvCpuTemp: TextView
+  private lateinit var tvBatteryTemp: TextView
+  private lateinit var tvBatteryLevel: TextView
+  
+  private val configChangeListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+    displayIpAddressAndPort(statusText)
+  }
+  
+  private val handler = Handler(Looper.getMainLooper())
+  private val updateStatsRunnable = object : Runnable {
+    override fun run() {
+      updateStatsDisplay()
+      handler.postDelayed(this, 1000)
+    }
+  }
+
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
-    // waiting for view to draw to better represent a captured error with a screenshot
-    // findViewById<android.view.View>(android.R.id.content).viewTreeObserver.addOnGlobalLayoutListener {
-    //   try {
-    //     throw Exception("This app uses Sentry! :)")
-    //   } catch (e: Exception) {
-    //     Sentry.captureException(e)
-    //   }
-    // }
 
     setContentView(R.layout.activity_main)
     Sentry.captureMessage("MainActivity onCreate")
 
     val start = findViewById<Button>(R.id.btnStart)
     val stop = findViewById<Button>(R.id.btnStop)
-    val statusText = findViewById<TextView>(R.id.tvStatus)
+    statusText = findViewById<TextView>(R.id.tvStatus)
+    tvFps = findViewById<TextView>(R.id.tvFps)
+    tvCpu = findViewById<TextView>(R.id.tvCpu)
+    tvNetwork = findViewById<TextView>(R.id.tvNetwork)
+    tvEncoder = findViewById<TextView>(R.id.tvEncoder)
+    tvCpuTemp = findViewById<TextView>(R.id.tvCpuTemp)
+    tvBatteryTemp = findViewById<TextView>(R.id.tvBatteryTemp)
+    tvBatteryLevel = findViewById<TextView>(R.id.tvBatteryLevel)
 
-    // 显示IP地址和端口信息
+    val cfg = ConfigStore(this)
+    val sp = getSharedPreferences("qnvr", Context.MODE_PRIVATE)
+    sp.registerOnSharedPreferenceChangeListener(configChangeListener)
+
     displayIpAddressAndPort(statusText)
 
     start.setOnClickListener { ensurePermissionsAndStart() }
     stop.setOnClickListener { stopService() }
+    
+    handler.post(updateStatsRunnable)
+  }
+  
+  private fun updateStatsDisplay() {
+    val service = RecorderService.getInstance()
+    if (service != null) {
+      val stats = service.getStats()
+      tvFps.text = "帧数: ${stats.currentFps} FPS"
+      tvCpu.text = "CPU: %.1f%%".format(stats.cpuUsage)
+      tvNetwork.text = "网络: 上传 %.1f Kbps / 下载 %.1f Kbps".format(stats.networkTxKbps, stats.networkRxKbps)
+      if (stats.encoderName.isNotEmpty()) {
+        tvEncoder.text = "编码器: ${stats.encoderName} (${stats.width}x${stats.height} @ ${stats.bitrate / 1000} Kbps)"
+      } else {
+        tvEncoder.text = "编码器: 未启动"
+      }
+      tvCpuTemp.text = if (stats.cpuTemp > 0) "CPU温度: %.1f°C".format(stats.cpuTemp) else "CPU温度: --°C"
+      tvBatteryTemp.text = if (stats.batteryTemp > 0) "电池温度: %.1f°C".format(stats.batteryTemp) else "电池温度: --°C"
+      tvBatteryLevel.text = if (stats.batteryLevel > 0) "电池电量: ${stats.batteryLevel}%" else "电池电量: --%"
+    }
+  }
+
+  override fun onDestroy() {
+    super.onDestroy()
+    try {
+      val sp = getSharedPreferences("qnvr", Context.MODE_PRIVATE)
+      sp.unregisterOnSharedPreferenceChangeListener(configChangeListener)
+    } catch (_: Exception) {}
+    handler.removeCallbacks(updateStatsRunnable)
   }
 
   private fun displayIpAddressAndPort(textView: TextView) {
     Thread {
       try {
         val ipAddress = getIpAddress()
-        val port = 18554 // 默认RTSP端口
-        val webPort = 8080 // 默认Web端口
+        val cfg = ConfigStore(this)
+        val port = cfg.getPort()
+        val username = cfg.getUsername()
+        val password = cfg.getPassword()
+        val webPort = 8080
         
         runOnUiThread {
-          textView.text = "RTSP地址: rtsp://$ipAddress:$port/live\nWeb界面: http://$ipAddress:$webPort/"
+          val encodedUsername = java.net.URLEncoder.encode(username, "UTF-8")
+          val encodedPassword = java.net.URLEncoder.encode(password, "UTF-8")
+          val rtspUrl = if (encodedPassword.isNotEmpty()) {
+            "rtsp://$encodedUsername:$encodedPassword@$ipAddress:$port/live"
+          } else {
+            "rtsp://$ipAddress:$port/live"
+          }
+          textView.text = "RTSP地址: $rtspUrl\nWeb界面: http://$ipAddress:$webPort/"
         }
       } catch (e: Exception) {
         runOnUiThread {
@@ -77,8 +143,6 @@ class MainActivity : ComponentActivity() {
       val interfaces: Enumeration<NetworkInterface> = NetworkInterface.getNetworkInterfaces()
       while (interfaces.hasMoreElements()) {
         val networkInterface: NetworkInterface = interfaces.nextElement()
-        // 打印网络接口信息用于调试
-        android.util.Log.d("MainActivity", "Network interface: ${networkInterface.name}, isUp: ${networkInterface.isUp}, isLoopback: ${networkInterface.isLoopback}")
         
         if (networkInterface.isLoopback || !networkInterface.isUp) {
           continue
@@ -88,11 +152,8 @@ class MainActivity : ComponentActivity() {
         while (addresses.hasMoreElements()) {
           val inetAddress: InetAddress = addresses.nextElement()
           val hostAddress = inetAddress.hostAddress
-          // 打印IP地址信息用于调试
-          android.util.Log.d("MainActivity", "IP Address: $hostAddress, isLoopback: ${inetAddress.isLoopbackAddress}, hasColon: ${hostAddress?.indexOf(':')}")
           
           if (hostAddress != null && !inetAddress.isLoopbackAddress && hostAddress.indexOf(':') == -1) {
-            android.util.Log.d("MainActivity", "Selected IP Address: $hostAddress")
             return hostAddress
           }
         }
@@ -107,6 +168,7 @@ class MainActivity : ComponentActivity() {
     val required = mutableListOf(
       Manifest.permission.CAMERA,
       Manifest.permission.INTERNET,
+      Manifest.permission.RECORD_AUDIO,
       Manifest.permission.WAKE_LOCK
     )
     if (Build.VERSION.SDK_INT >= 33) {

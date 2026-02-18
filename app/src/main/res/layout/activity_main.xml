@@ -1,42 +1,151 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:padding="16dp">
+    android:layout_height="match_parent">
 
-    <Button
-        android:id="@+id/btnStart"
-        android:layout_width="0dp"
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="启动录像服务"
-        app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintHorizontal_bias="0" />
+        android:padding="16dp">
 
-    <Button
-        android:id="@+id/btnStop"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:text="停止录像服务"
-        android:layout_marginTop="8dp"
-        app:layout_constraintTop_toBottomOf="@id/btnStart"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent" />
-    
-    <TextView
-        android:id="@+id/tvStatus"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:text="正在获取网络信息..."
-        android:gravity="center"
-        android:layout_marginTop="16dp"
-        android:padding="16dp"
-        android:background="#f0f0f0"
-        android:textColor="#333"
-        app:layout_constraintTop_toBottomOf="@id/btnStop"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent" />
+        <Button
+            android:id="@+id/btnStart"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:text="启动录像服务"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintHorizontal_bias="0" />
 
-</androidx.constraintlayout.widget.ConstraintLayout>
+        <Button
+            android:id="@+id/btnStop"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:text="停止录像服务"
+            android:layout_marginTop="8dp"
+            app:layout_constraintTop_toBottomOf="@id/btnStart"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+        
+        <TextView
+            android:id="@+id/tvStatus"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:text="正在获取网络信息..."
+            android:gravity="center"
+            android:layout_marginTop="16dp"
+            android:padding="16dp"
+            android:background="#f0f0f0"
+            android:textColor="#333"
+            app:layout_constraintTop_toBottomOf="@id/btnStop"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+        
+        <TextView
+            android:id="@+id/tvStatsTitle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:text="系统监控"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:layout_marginTop="24dp"
+            android:gravity="center"
+            app:layout_constraintTop_toBottomOf="@id/tvStatus"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+        
+        <TextView
+            android:id="@+id/tvFps"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:text="帧数: -- FPS"
+            android:layout_marginTop="8dp"
+            android:padding="12dp"
+            android:background="#e3f2fd"
+            android:textSize="16sp"
+            app:layout_constraintTop_toBottomOf="@id/tvStatsTitle"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+        
+        <TextView
+            android:id="@+id/tvCpu"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:text="CPU: --%"
+            android:layout_marginTop="8dp"
+            android:padding="12dp"
+            android:background="#fff3e0"
+            android:textSize="16sp"
+            app:layout_constraintTop_toBottomOf="@id/tvFps"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+        
+        <TextView
+            android:id="@+id/tvNetwork"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:text="网络: 上传 -- Kbps / 下载 -- Kbps"
+            android:layout_marginTop="8dp"
+            android:padding="12dp"
+            android:background="#e8f5e9"
+            android:textSize="16sp"
+            app:layout_constraintTop_toBottomOf="@id/tvCpu"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+        
+        <TextView
+            android:id="@+id/tvEncoder"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:text="编码器: 未启动"
+            android:layout_marginTop="8dp"
+            android:padding="12dp"
+            android:background="#f3e5f5"
+            android:textSize="14sp"
+            app:layout_constraintTop_toBottomOf="@id/tvNetwork"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+        
+        <TextView
+            android:id="@+id/tvCpuTemp"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:text="CPU温度: --°C"
+            android:layout_marginTop="8dp"
+            android:padding="12dp"
+            android:background="#ffebee"
+            android:textSize="16sp"
+            app:layout_constraintTop_toBottomOf="@id/tvEncoder"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+        
+        <TextView
+            android:id="@+id/tvBatteryTemp"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:text="电池温度: --°C"
+            android:layout_marginTop="8dp"
+            android:padding="12dp"
+            android:background="#fff9c4"
+            android:textSize="16sp"
+            app:layout_constraintTop_toBottomOf="@id/tvCpuTemp"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+        
+        <TextView
+            android:id="@+id/tvBatteryLevel"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:text="电池电量: --%"
+            android:layout_marginTop="8dp"
+            android:padding="12dp"
+            android:background="#c8e6c9"
+            android:textSize="16sp"
+            app:layout_constraintTop_toBottomOf="@id/tvBatteryTemp"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+    </androidx.constraintlayout.widget.ConstraintLayout>
+</ScrollView>

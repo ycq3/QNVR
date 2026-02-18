@@ -17,7 +17,16 @@ QNVR是一个基于Android平台的网络视频监控应用，支持通过RTSP�
 
 ## 快速开始
 
+### 环境配置
+
+构建前请确保已安装以下环境：
+- JDK 17
+- Android SDK（API 34）
+- Android Studio 2022.3+（推荐）或命令行工具
+
 ### 编译运行
+
+#### 使用 Android Studio
 
 1. 克隆项目到本地
    ```bash
@@ -27,7 +36,84 @@ QNVR是一个基于Android平台的网络视频监控应用，支持通过RTSP�
 
 2. 用Android Studio打开项目
 
-3. 连接Android设备并运行应用
+3. 等待 Gradle 同步完成
+
+4. 连接Android设备或启动模拟器
+
+5. 点击运行按钮或使用快捷键 Shift+F10 运行应用
+
+#### 使用命令行
+
+1. 克隆项目到本地
+   ```bash
+   git clone https://github.com/ycq3/qnvr.git
+   cd qnvr
+   ```
+
+2. 授予 Gradle Wrapper 执行权限
+   ```bash
+   chmod +x gradlew
+   ```
+
+3. 编译 Debug 版本
+   ```bash
+   ./gradlew assembleDebug
+   ```
+
+4. 安装到已连接的设备
+   ```bash
+   ./gradlew installDebug
+   ```
+
+5. 编译 Release 版本
+   ```bash
+   ./gradlew assembleRelease
+   ```
+
+   **注意**：编译 Release 版本需要配置签名信息，详见下方 [签名配置](#签名配置)。
+
+#### 常用 Gradle 命令
+
+```bash
+# 清理构建产物
+./gradlew clean
+
+# 编译并运行所有测试
+./gradlew test
+
+# 编译 Debug 版本并安装
+./gradlew installDebug
+
+# 查看所有可用任务
+./gradlew tasks
+```
+
+### 签名配置
+
+如需编译 Release 版本，需配置签名信息。有以下两种方式：
+
+#### 方式一：使用 local.properties
+
+在项目根目录创建 `local.properties` 文件，添加以下内容：
+
+```properties
+sdk.dir=/path/to/android/sdk
+qnvrStoreFile=/path/to/keystore.jks
+qnvrStorePassword=your_store_password
+qnvrKeyAlias=your_key_alias
+qnvrKeyPassword=your_key_password
+```
+
+#### 方式二：使用环境变量
+
+设置以下环境变量：
+
+```bash
+export QNVR_STORE_PASSWORD=your_store_password
+export QNVR_KEY_PASSWORD=your_key_password
+```
+
+同时在 `local.properties` 或通过 Gradle 属性配置密钥库文件路径和别名。
 
 ### 使用方法
 

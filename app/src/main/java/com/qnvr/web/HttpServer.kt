@@ -5,6 +5,7 @@ import com.qnvr.camera.CameraController
 import com.qnvr.preview.MjpegStreamer
 import com.qnvr.config.ConfigStore
 import com.qnvr.config.ConfigApplier
+import com.qnvr.service.RecorderService
 import fi.iki.elonen.NanoHTTPD
 import fi.iki.elonen.NanoHTTPD.Response.Status
 import org.json.JSONObject
@@ -20,10 +21,38 @@ class HttpServer(ctx: Context, private val camera: CameraController, private val
     if (uri == "/") return serveAssetHtml("web/index.html")
     if (uri == "/stream.mjpg") return serveMjpeg()
     if (uri == "/api/status") return serveStatus(session)
+    if (uri == "/api/stats") return serveStats(session)
     if (uri == "/api/config" && session.method == Method.GET) return getConfig(session)
     if (uri == "/api/config" && session.method == Method.POST) return handleConfig(session)
     if (uri == "/api/encoders" && session.method == Method.GET) return getEncoders(session)  // 新增：获取编码器列表
     return newFixedLengthResponse(Status.NOT_FOUND, "text/plain", "404")
+  }
+  
+  private fun serveStats(@Suppress("UNUSED_PARAMETER") session: IHTTPSession): Response {
+    val json = JSONObject()
+    try {
+      val service = com.qnvr.service.RecorderService.getInstance()
+      if (service != null) {
+        val stats = service.getStats()
+        json.put("currentFps", stats.currentFps)
+        json.put("cpuUsage", stats.cpuUsage)
+        json.put("networkRxBytes", stats.networkRxBytes)
+        json.put("networkTxBytes", stats.networkTxBytes)
+        json.put("networkRxKbps", stats.networkRxKbps)
+        json.put("networkTxKbps", stats.networkTxKbps)
+        json.put("encoderName", stats.encoderName)
+        json.put("encoderType", stats.encoderType)
+        json.put("width", stats.width)
+        json.put("height", stats.height)
+        json.put("bitrate", stats.bitrate)
+        json.put("cpuTemp", stats.cpuTemp)
+        json.put("batteryTemp", stats.batteryTemp)
+        json.put("batteryLevel", stats.batteryLevel)
+      }
+    } catch (e: Exception) {
+      android.util.Log.e("HttpServer", "Error getting stats", e)
+    }
+    return newFixedLengthResponse(Status.OK, "application/json", json.toString())
   }
 
   private fun serveAssetHtml(path: String): Response {
@@ -59,10 +88,11 @@ class HttpServer(ctx: Context, private val camera: CameraController, private val
   private fun serveStatus(session: IHTTPSession): Response {
     val ip = session.headers["host"] ?: "localhost"
     val host = ip.substringBefore(":")
-    // 对用户名和密码进行URL编码以避免特殊字符问题
     val encodedUsername = java.net.URLEncoder.encode(cfg.getUsername(), "UTF-8")
     val encodedPassword = java.net.URLEncoder.encode(cfg.getPassword(), "UTF-8")
     val rtsp = "rtsp://$encodedUsername:$encodedPassword@${host}:${cfg.getPort()}/live"
+    
+    val stats = RecorderService.getInstance()?.getStats()
     val json = JSONObject()
     json.put("rtsp", rtsp)
     json.put("web", "http://$ip/")
@@ -73,6 +103,10 @@ class HttpServer(ctx: Context, private val camera: CameraController, private val
     json.put("height", cfg.getHeight())
     json.put("fps", cfg.getFps())
     json.put("port", cfg.getPort())
+    json.put("currentFps", stats?.currentFps ?: 0)
+    json.put("cpuUsage", (stats?.cpuUsage ?: 0f).toDouble())
+    json.put("encoderName", stats?.encoderName ?: cfg.getEncoderName() ?: "")
+    json.put("encoderType", stats?.encoderType ?: cfg.getMimeType() ?: "")
     return newFixedLengthResponse(Status.OK, "application/json", json.toString())
   }
 
@@ -97,8 +131,6 @@ class HttpServer(ctx: Context, private val camera: CameraController, private val
     }
     if (json.has("deviceName")) { val n = json.getString("deviceName"); cfg.setDeviceName(n); applier.applyDeviceName(n) }
     if (json.has("showDeviceName")) { val s = json.getBoolean("showDeviceName"); cfg.setShowDeviceName(s); applier.applyShowDeviceName(s) }
-    // 编码器配置
-    if (json.has("useSoftwareEncoder")) { val useSw = json.getBoolean("useSoftwareEncoder"); cfg.setUseSoftwareEncoder(useSw); applier.applyEncoder(cfg.getWidth(), cfg.getHeight(), cfg.getBitrate(), cfg.getFps()) }
     // 新增：处理编码器名称和MIME类型
     if (json.has("encoderName")) {
       val encName = json.optString("encoderName", "")
@@ -121,8 +153,6 @@ class HttpServer(ctx: Context, private val camera: CameraController, private val
     json.put("height", cfg.getHeight())
     json.put("deviceName", cfg.getDeviceName())
     json.put("showDeviceName", cfg.isShowDeviceName())
-    // 编码器配置
-    json.put("useSoftwareEncoder", cfg.getUseSoftwareEncoder())
     // 新增：返回编码器名称和MIME类型
     json.put("encoderName", cfg.getEncoderName())
     json.put("mimeType", cfg.getMimeType())

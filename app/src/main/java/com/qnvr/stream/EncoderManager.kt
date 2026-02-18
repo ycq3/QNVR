@@ -17,8 +17,9 @@ class EncoderManager {
 
                 val types = codec.supportedTypes
                 for (type in types) {
-                    // 只关注视频编码器
-                    if (type.startsWith("video/")) {
+                    if (type != MediaFormat.MIMETYPE_VIDEO_AVC && type != MediaFormat.MIMETYPE_VIDEO_HEVC) {
+                        continue
+                    }
                         try {
                             val caps = codec.getCapabilitiesForType(type)
                             val videoCaps = caps.videoCapabilities
@@ -39,7 +40,6 @@ class EncoderManager {
                         } catch (e: Exception) {
                             android.util.Log.e("EncoderManager", "Failed to get capabilities for $type on ${codec.name}", e)
                         }
-                    }
                 }
             }
 
@@ -89,17 +89,6 @@ class EncoderManager {
             }
         }
 
-        // 获取推荐的编码器（优先硬件编码器）
-        fun getRecommendedEncoder(mimeType: String = MediaFormat.MIMETYPE_VIDEO_AVC): EncoderInfo? {
-            val encoders = getSupportedEncoders().filter { it.mimeType == mimeType }
-            
-            // 优先选择硬件加速编码器
-            val hwEncoder = encoders.find { it.isHardwareAccelerated }
-            if (hwEncoder != null) return hwEncoder
-            
-            // 如果没有硬件编码器，选择第一个软件编码器
-            return encoders.firstOrNull()
-        }
     }
 }
 
@@ -117,8 +106,6 @@ data class EncoderInfo(
         val formatName = when (mimeType) {
             MediaFormat.MIMETYPE_VIDEO_AVC -> "H.264/AVC"
             MediaFormat.MIMETYPE_VIDEO_HEVC -> "H.265/HEVC"
-            MediaFormat.MIMETYPE_VIDEO_VP8 -> "VP8"
-            MediaFormat.MIMETYPE_VIDEO_VP9 -> "VP9"
             else -> mimeType
         }
         return "$formatName ($type) - $name"

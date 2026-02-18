@@ -17,3 +17,4 @@
 
 # Sentry Config File
 sentry.properties
+.DS_Store

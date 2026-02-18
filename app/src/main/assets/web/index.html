@@ -10,6 +10,20 @@
     .row { margin: 8px 0; }
     label { display: inline-block; width: 100px; }
     select { width: 200px; }
+    .stats-box {
+      background: #f5f5f5;
+      padding: 12px;
+      border-radius: 8px;
+      margin: 12px 0;
+    }
+    .stat-item {
+      display: inline-block;
+      margin: 4px 12px 4px 0;
+      padding: 6px 12px;
+      background: white;
+      border-radius: 4px;
+      font-size: 14px;
+    }
   </style>
   <script>
     let encoders = []; // 存储可用编码器列表
@@ -50,7 +64,7 @@
       document.getElementById('password').value = s.password || ''
       document.getElementById('port').value = s.port || 18554  // 将默认端口从8554改为18554
       document.getElementById('bitrate').value = s.bitrate || 4000000
-      document.getElementById('useSoftwareEncoder').checked = !!s.useSoftwareEncoder
+      document.getElementById('fps').value = s.fps || 30
       // 设置编码器选项
       document.getElementById('encoderName').dataset.current = s.encoderName || '';
       document.getElementById('mimeType').value = s.mimeType || 'video/avc';
@@ -60,6 +74,25 @@
       
       const res = `${s.width}x${s.height}`
       document.getElementById('resolution').value = res
+    }
+    
+    async function refreshStats() {
+      try {
+        const stats = await fetch('/api/stats').then(r=>r.json())
+        document.getElementById('statFps').textContent = `帧数: ${stats.currentFps || 0} FPS`
+        document.getElementById('statCpu').textContent = `CPU: ${(stats.cpuUsage || 0).toFixed(1)}%`
+        document.getElementById('statNetwork').textContent = `网络: 上传 ${(stats.networkTxKbps || 0).toFixed(1)} Kbps / 下载 ${(stats.networkRxKbps || 0).toFixed(1)} Kbps`
+        document.getElementById('statCpuTemp').textContent = `CPU温度: ${(stats.cpuTemp || 0).toFixed(1)}°C`
+        document.getElementById('statBatteryTemp').textContent = `电池温度: ${(stats.batteryTemp || 0).toFixed(1)}°C`
+        document.getElementById('statBatteryLevel').textContent = `电池电量: ${stats.batteryLevel || 0}%`
+        if (stats.encoderName) {
+          document.getElementById('statEncoder').textContent = `编码器: ${stats.encoderName} (${stats.width}x${stats.height} @ ${Math.floor(stats.bitrate / 1000)} Kbps)`
+        } else {
+          document.getElementById('statEncoder').textContent = `编码器: 未启动`
+        }
+      } catch (e) {
+        console.error('Failed to refresh stats:', e)
+      }
     }
     
     async function applyCfg() {
@@ -72,11 +105,11 @@
       const password = document.getElementById('password').value
       const port = parseInt(document.getElementById('port').value, 10)
       const bitrate = parseInt(document.getElementById('bitrate').value, 10)
-      const useSoftwareEncoder = document.getElementById('useSoftwareEncoder').checked
+      const fps = parseInt(document.getElementById('fps').value, 10)
       const encoderName = document.getElementById('encoderName').value || null
       const mimeType = document.getElementById('mimeType').value
       const [width, height] = document.getElementById('resolution').value.split('x').map(x=>parseInt(x,10))
-      await fetch('/api/config', {method:'POST', body: JSON.stringify({torch, watermark, zoom, deviceName, showDeviceName, username, password, port, bitrate, useSoftwareEncoder, encoderName, mimeType, width, height})})
+      await fetch('/api/config', {method:'POST', body: JSON.stringify({torch, watermark, zoom, deviceName, showDeviceName, username, password, port, bitrate, fps, encoderName, mimeType, width, height})})
       refresh()
     }
     
@@ -85,7 +118,7 @@
       img.src = '/stream.mjpg'
     }
     
-    window.onload = ()=>{ refresh(); startPreview(); }
+    window.onload = ()=>{ refresh(); startPreview(); setInterval(refreshStats, 1000); }
   </script>
 </head>
 <body>
@@ -93,6 +126,18 @@
   <img id="mjpeg" alt="预览" />
   <div class="row">RTSP 地址：<a id="rtsp" href="#" target="_blank"></a></div>
   <div class="row">Web 地址：<a id="web" href="#" target="_blank"></a></div>
+  
+  <div class="stats-box">
+    <h3 style="margin: 0 0 8px 0;">系统监控</h3>
+    <div class="stat-item" id="statFps">帧数: -- FPS</div>
+    <div class="stat-item" id="statCpu">CPU: --%</div>
+    <div class="stat-item" id="statNetwork">网络: 上传 -- Kbps / 下载 -- Kbps</div>
+    <div class="stat-item" id="statCpuTemp">CPU温度: --°C</div>
+    <div class="stat-item" id="statBatteryTemp">电池温度: --°C</div>
+    <div class="stat-item" id="statBatteryLevel">电池电量: --%</div>
+    <div class="stat-item" id="statEncoder">编码器: 未启动</div>
+  </div>
+  
   <h3>参数配置</h3>
   <div class="row"><label>设备名</label><input id="deviceName" type="text"></div>
   <div class="row"><label>显示设备名</label><input id="showDeviceName" type="checkbox"></div>
@@ -100,17 +145,14 @@
   <div class="row"><label>密码</label><input id="password" type="password"></div>
   <div class="row"><label>RTSP 端口</label><input id="port" type="number" min="1024" max="65535" value="18554"></div>  <!-- 将默认端口从8554改为18554 -->
   <div class="row"><label>码率</label><input id="bitrate" type="number" min="500000" step="100000" value="4000000"></div>
-  <div class="row"><label>帧率</label><input id="fps" type="number" min="1" max="30" value="30"></div>
+  <div class="row"><label>帧率</label><input id="fps" type="number" min="1" max="60" value="30"></div>
   <div class="row"><label>编码格式</label>
     <select id="mimeType">
       <option value="video/avc">H.264/AVC</option>
       <option value="video/hevc">H.265/HEVC</option>
-      <option value="video/x-vnd.on2.vp8">VP8</option>
-      <option value="video/x-vnd.on2.vp9">VP9</option>
     </select>
   </div>
   <div class="row"><label>编码器</label><select id="encoderName"></select></div>
-  <div class="row"><label>软件编码</label><input id="useSoftwareEncoder" type="checkbox"></div>
   <div class="row"><label>分辨率</label>
     <select id="resolution">
       <option value="1280x720">1280x720</option>

@@ -23,24 +23,39 @@ import com.qnvr.web.HttpServer
 import com.qnvr.config.ConfigStore
 import com.qnvr.config.ConfigApplier
 import io.sentry.Sentry
+import android.content.SharedPreferences
 
-class RecorderService : LifecycleService(), ConfigApplier {
+class RecorderService : LifecycleService(), ConfigApplier, SharedPreferences.OnSharedPreferenceChangeListener {
   private lateinit var wakeLock: PowerManager.WakeLock
   private lateinit var camera: CameraController
   private lateinit var httpServer: HttpServer
   private lateinit var mjpegStreamer: MjpegStreamer
   private lateinit var rtspServer: RtspServerWrapper
   private lateinit var cfg: ConfigStore
+  private lateinit var statsMonitor: com.qnvr.StatsMonitor
+  private lateinit var sp: SharedPreferences
+  
+  companion object {
+      private var instance: RecorderService? = null
+      
+      fun getInstance(): RecorderService? = instance
+  }
 
   override fun onCreate() {
     super.onCreate()
+    instance = this
     android.util.Log.i("RecorderService", "onCreate called")
     val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
     wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "QNVR:Recorder")
     wakeLock.acquire()
 
     cfg = ConfigStore(this)
+    sp = getSharedPreferences("qnvr", Context.MODE_PRIVATE)
+    sp.registerOnSharedPreferenceChangeListener(this)
+    
     camera = CameraController(this)
+    statsMonitor = com.qnvr.StatsMonitor(this)
+    camera.setStatsMonitor(statsMonitor)
     mjpegStreamer = MjpegStreamer(camera)
     
     try {
@@ -55,23 +70,28 @@ class RecorderService : LifecycleService(), ConfigApplier {
     // 验证配置并使用合适的默认值
     val mimeType = cfg.getMimeType()
     val bitrate = if (cfg.getBitrate() > 0) cfg.getBitrate() else cfg.getBitrateForMimeType(mimeType)
+    val encoderName = cfg.getEncoderName() ?: "auto"
     
-    android.util.Log.i("RecorderService", "Creating RTSP server with port: ${cfg.getPort()}, username: ${cfg.getUsername()}, password: ${cfg.getPassword()}, encoderName: ${cfg.getEncoderName()}, mimeType: $mimeType, bitrate: $bitrate")
+    android.util.Log.i("RecorderService", "Creating RTSP server with port: ${cfg.getPort()}, username: ${cfg.getUsername()}, password: ${cfg.getPassword()}, encoderName: $encoderName, mimeType: $mimeType, bitrate: $bitrate")
     
-    try {
-      rtspServer = RtspServerWrapper(
-          this, 
-          camera, 
-          cfg.getPort(), 
-          cfg.getUsername(), 
-          cfg.getPassword(), 
-          cfg.getWidth(), 
-          cfg.getHeight(), 
-          cfg.getFps(), 
-          bitrate,  // 使用验证后的码率
-          cfg.getEncoderName(),  // 使用配置的编码器名称
-          mimeType  // 使用验证后的MIME类型
-      )
+    try { 
+        rtspServer = RtspServerWrapper(
+            this, 
+            camera, 
+            cfg.getPort(), 
+            cfg.getUsername(), 
+            cfg.getPassword(), 
+            cfg.getWidth(), 
+            cfg.getHeight(), 
+            cfg.getFps(), 
+            bitrate,
+            encoderName,
+            mimeType
+        )
+        rtspServer.start()
+        
+        val actualEncoderName = rtspServer.getActualEncoderName() ?: encoderName
+        statsMonitor.setEncoderInfo(actualEncoderName, mimeType, cfg.getWidth(), cfg.getHeight(), bitrate)
     } catch (e: Exception) {
       android.util.Log.e("RecorderService", "Failed to create RTSP server", e)
       Sentry.captureException(e)
@@ -118,21 +138,10 @@ class RecorderService : LifecycleService(), ConfigApplier {
         android.os.Handler(android.os.Looper.getMainLooper()).post {
             android.widget.Toast.makeText(this, "Camera failed to start: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
         }
-        // 不抛出异常，继续尝试启动RTSP服务器
-      }
-      
-      try { 
-        android.util.Log.i("RecorderService", "Starting RTSP server")
-        rtspServer.start() 
-        android.util.Log.i("RecorderService", "RTSP server started successfully")
-      } catch (e: Exception) { 
-        android.util.Log.e("RecorderService", "Failed to start RTSP server", e)
-        Sentry.captureException(e)
-        // 这里我们记录错误但不抛出异常，让应用继续运行
       }
     } else {
-      android.util.Log.w("RecorderService", "Camera permission missing; skipping camera/rtsp start")
-      Sentry.captureMessage("Camera permission missing; skipping camera/rtsp start")
+      android.util.Log.w("RecorderService", "Camera permission missing; skipping camera start")
+      Sentry.captureMessage("Camera permission missing; skipping camera start")
     }
 
     startForeground(1, buildNotification())
@@ -162,11 +171,21 @@ class RecorderService : LifecycleService(), ConfigApplier {
 
   override fun onDestroy() {
     super.onDestroy()
+    instance = null
+    try {
+        if (::sp.isInitialized) {
+            sp.unregisterOnSharedPreferenceChangeListener(this)
+        }
+    } catch (_: Exception) {}
     try { rtspServer.stop() } catch (_: Exception) {}
     try { mjpegStreamer.stop() } catch (_: Exception) {}
     try { httpServer.shutdown() } catch (_: Exception) {}
     try { camera.stop() } catch (_: Exception) {}
     if (wakeLock.isHeld) wakeLock.release()
+  }
+  
+  fun getStats(): com.qnvr.StatsData {
+      return statsMonitor.getStats()
   }
 
   override fun onBind(intent: Intent): IBinder? {
@@ -209,4 +228,32 @@ class RecorderService : LifecycleService(), ConfigApplier {
   override fun applyDeviceName(name: String) { try { camera.setDeviceName(name) } catch (_: Exception) {} }
   override fun applyShowDeviceName(show: Boolean) { try { camera.setShowDeviceName(show) } catch (_: Exception) {} }
   override fun applyCredentials(username: String, password: String) { try { rtspServer.updateCredentials(username, password) } catch (_: Exception) {} }
+
+  private val configHandler = android.os.Handler(android.os.Looper.getMainLooper())
+  private val configRunnable = Runnable {
+      try {
+          // Re-read all relevant config and apply
+          val mimeType = cfg.getMimeType()
+          val bitrate = if (cfg.getBitrate() > 0) cfg.getBitrate() else cfg.getBitrateForMimeType(mimeType)
+          applyEncoder(cfg.getWidth(), cfg.getHeight(), bitrate, cfg.getFps())
+      } catch (e: Exception) {
+          android.util.Log.e("RecorderService", "Error applying config", e)
+      }
+  }
+
+  override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences?, key: String?) {
+      if (key == null) return
+      android.util.Log.i("RecorderService", "Config changed: $key")
+      
+      when (key) {
+          "port" -> applyPort(cfg.getPort())
+          "width", "height", "fps", "bitrate", "encoderName", "mimeType" -> {
+              configHandler.removeCallbacks(configRunnable)
+              configHandler.postDelayed(configRunnable, 500)
+          }
+          "deviceName" -> applyDeviceName(cfg.getDeviceName())
+          "showDeviceName" -> applyShowDeviceName(cfg.isShowDeviceName())
+          "username", "password" -> applyCredentials(cfg.getUsername(), cfg.getPassword())
+      }
+  }
 }

@@ -36,14 +36,15 @@ class CameraController(private val context: Context) {
   private var deviceName = ""
   private var showDeviceName = false
   private var fps = 30
-  private var enableRtspWatermark = true  // 新增：控制RTSP流是否添加水印
+  private var enableRtspWatermark = true
   private var rtspEncoder: com.qnvr.stream.VideoEncoder? = null
   private val latestPreviewJpeg = AtomicReference<ByteArray?>(null)
   private var sessionTargets: List<Surface> = emptyList()
+  
+  private var statsMonitor: com.qnvr.StatsMonitor? = null
 
   private var targetFps = 30
   private var lastFrameTime = 0L
-  // Watermark resources
   private var watermarkBitmap: Bitmap? = null
   private var watermarkCanvas: Canvas? = null
   private val watermarkPaint = Paint().apply {
@@ -53,13 +54,15 @@ class CameraController(private val context: Context) {
       setShadowLayer(2f, 1f, 1f, android.graphics.Color.BLACK)
   }
   private var lastWatermarkSecond = -1L
+  private var watermarkPixels: IntArray? = null
+  private var watermarkWidth = 0
+  private var watermarkHeight = 0
   
-  // Reusable buffers to avoid repeated allocations (OOM fix)
   private var nv12Buffer: ByteArray? = null
   private var nv21Buffer: ByteArray? = null
   private val jpegOutputStream = ByteArrayOutputStream()
   private var lastPreviewTime = 0L
-  private val previewFps = 5 // Limit JPEG preview to 5 FPS to reduce memory pressure
+  private val previewFps = 5
 
   fun setEncoderSurface(surface: android.view.Surface) {
     encoderSurface = surface
@@ -143,6 +146,8 @@ class CameraController(private val context: Context) {
       }
       lastFrameTime = now
       
+      statsMonitor?.onFrame()
+      
       val width = img.width
       val height = img.height
       
@@ -153,9 +158,11 @@ class CameraController(private val context: Context) {
       // RTSP Stream feeding
       if (enableRtspWatermark && rtspEncoder != null) {
           try {
+              // 复制一份数据给 RTSP 编码器，避免与预览共享缓冲区导致数据竞争
+              val nv12Copy = nv12.copyOf()
               // Optimized watermark: Overlay on NV12 buffer directly
-              addWatermarkDirect(nv12, width, height)
-              rtspEncoder?.feedFrame(nv12, System.nanoTime() / 1000)
+              addWatermarkDirect(nv12Copy, width, height)
+              rtspEncoder?.feedFrame(nv12Copy, System.nanoTime() / 1000)
           } catch (e: Exception) {
               io.sentry.Sentry.captureException(e)
           }
@@ -361,40 +368,61 @@ class CameraController(private val context: Context) {
     val second = now / 1000
     if (second != lastWatermarkSecond || watermarkBitmap == null || watermarkBitmap!!.width != width) {
         lastWatermarkSecond = second
-        if (watermarkBitmap == null || watermarkBitmap!!.width != width) {
-            watermarkBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        
+        val topH = 80
+        val botH = 80
+        val totalH = if (showDeviceName) topH + botH else botH
+        
+        if (watermarkBitmap == null || watermarkWidth != width || watermarkHeight != totalH) {
+            watermarkWidth = width
+            watermarkHeight = totalH
+            watermarkBitmap = Bitmap.createBitmap(width, totalH, Bitmap.Config.ARGB_8888)
+            watermarkPixels = IntArray(width * totalH)
         }
-        val canvas = watermarkCanvas ?: Canvas(watermarkBitmap!!).also { watermarkCanvas = it }
+        
+        val bmp = watermarkBitmap!!
+        val canvas = watermarkCanvas ?: Canvas(bmp).also { watermarkCanvas = it }
         canvas.drawColor(0, android.graphics.PorterDuff.Mode.CLEAR)
         
         val text = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(java.util.Date())
-        canvas.drawText(text, 20f, height - 30f, watermarkPaint)
+        val yOffset = if (showDeviceName) topH else 0
+        canvas.drawText(text, 20f, (totalH - 30).toFloat(), watermarkPaint)
+        
         if (showDeviceName && deviceName.isNotEmpty()) {
             canvas.drawText(deviceName, 20f, 40f, watermarkPaint)
         }
+        
+        bmp.getPixels(watermarkPixels!!, 0, width, 0, 0, width, totalH)
     }
     
-    val bmp = watermarkBitmap!!
+    val pixels = watermarkPixels ?: return
     val topH = 80
     val botH = 80
     
-    fun blend(yStart: Int, h: Int) {
-        val pixels = IntArray(width * h)
-        bmp.getPixels(pixels, 0, width, 0, yStart, width, h)
-        
-        var pIdx = 0
-        for (j in 0 until h) {
-            val yPos = (yStart + j) * width
-            for (i in 0 until width) {
-                val c = pixels[pIdx++]
-                if ((c ushr 24) > 128) { 
-                    nv12[yPos + i] = 255.toByte()
-                }
-            }
-        }
+    if (showDeviceName) {
+        blendRegion(nv12, pixels, 0, 0, width, topH, width)
     }
     
-    if (showDeviceName) blend(0, topH)
-    blend(height - botH, botH)
+    val botYStart = if (showDeviceName) topH else 0
+    blendRegion(nv12, pixels, height - botH, botYStart, width, botH, width)
   }
+  
+  private fun blendRegion(nv12: ByteArray, pixels: IntArray, yStart: Int, pixelYStart: Int, width: Int, h: Int, pixelWidth: Int) {
+      var pIdx = pixelYStart * pixelWidth
+      for (j in 0 until h) {
+          val yPos = (yStart + j) * width
+          for (i in 0 until width) {
+              val c = pixels[pIdx++]
+              if ((c ushr 24) > 128) { 
+                  nv12[yPos + i] = 255.toByte()
+              }
+          }
+      }
+  }
+  
+  fun setStatsMonitor(monitor: com.qnvr.StatsMonitor) {
+      statsMonitor = monitor
+  }
+  
+  fun getStatsMonitor(): com.qnvr.StatsMonitor? = statsMonitor
 }

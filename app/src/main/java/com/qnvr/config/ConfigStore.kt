@@ -21,9 +21,6 @@ class ConfigStore(ctx: Context) {
   fun setDeviceName(v: String) { sp.edit().putString("deviceName", v).apply() }
   fun isShowDeviceName(): Boolean = sp.getBoolean("showDeviceName", false)
   fun setShowDeviceName(v: Boolean) { sp.edit().putBoolean("showDeviceName", v).apply() }
-  // 编码器配置
-  fun getUseSoftwareEncoder(): Boolean = sp.getBoolean("useSoftwareEncoder", false)
-  fun setUseSoftwareEncoder(v: Boolean) { sp.edit().putBoolean("useSoftwareEncoder", v).apply() }
   // 新增：获取编码器名称和MIME类型
   fun getEncoderName(): String? = sp.getString("encoderName", null)
   fun setEncoderName(v: String?) { sp.edit().putString("encoderName", v).apply() }
@@ -34,9 +31,7 @@ class ConfigStore(ctx: Context) {
     // 确保返回的MIME类型是有效的
     return when (mimeType) {
       MediaFormat.MIMETYPE_VIDEO_AVC,
-      MediaFormat.MIMETYPE_VIDEO_HEVC,
-      MediaFormat.MIMETYPE_VIDEO_VP8,
-      MediaFormat.MIMETYPE_VIDEO_VP9 -> mimeType
+      MediaFormat.MIMETYPE_VIDEO_HEVC -> mimeType
       else -> MediaFormat.MIMETYPE_VIDEO_AVC  // 默认使用H.264
     }
   }
@@ -45,9 +40,7 @@ class ConfigStore(ctx: Context) {
     // 验证MIME类型
     val validMimeType = when (v) {
       MediaFormat.MIMETYPE_VIDEO_AVC,
-      MediaFormat.MIMETYPE_VIDEO_HEVC,
-      MediaFormat.MIMETYPE_VIDEO_VP8,
-      MediaFormat.MIMETYPE_VIDEO_VP9 -> v
+      MediaFormat.MIMETYPE_VIDEO_HEVC -> v
       else -> MediaFormat.MIMETYPE_VIDEO_AVC  // 默认使用H.264
     }
     sp.edit().putString("mimeType", validMimeType).apply() 
@@ -57,8 +50,6 @@ class ConfigStore(ctx: Context) {
   fun getBitrateForMimeType(mimeType: String = getMimeType()): Int {
     return when (mimeType) {
       MediaFormat.MIMETYPE_VIDEO_HEVC -> 3_000_000  // HEVC通常需要较低码率
-      MediaFormat.MIMETYPE_VIDEO_VP8,
-      MediaFormat.MIMETYPE_VIDEO_VP9 -> 4_000_000  // VP8/VP9码率
       else -> 4_000_000  // H.264和其他格式
     }
   }
