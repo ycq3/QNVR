@@ -1,6 +1,8 @@
 # QNVR
 
 QNVR是一个基于Android平台的网络视频监控应用，支持通过RTSP协议和Web界面进行视频流预览与配置管理。
+下载体验: 
+- [飞书文档](https://pipiqiang.feishu.cn/wiki/DgrhwZPmAiEi2hkqO0WcesZXnsh)
 
 ## 功能特点
 
