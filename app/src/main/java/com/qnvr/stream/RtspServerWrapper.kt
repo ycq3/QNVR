@@ -128,7 +128,7 @@ class RtspServerWrapper(
     if (enableAudio && audioPerm) {
       try {
         audioEncoder = com.qnvr.stream.AudioEncoder()
-        audioEncoder.start()
+        audioEncoder.start(ctx)
         audioEnabled = true
       } catch (e: Exception) {
         android.util.Log.e("RtspServerWrapper", "Failed to initialize audio encoder", e)

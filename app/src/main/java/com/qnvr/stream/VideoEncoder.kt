@@ -171,25 +171,24 @@ class VideoEncoder(
     try {
       configureAndStart(format)
     } catch (e: Exception) {
-      android.util.Log.w("VideoEncoder", "First attempt to configure codec failed, trying fallback options", e)
-      
-      // Fallback 1: Remove profile/level constraints
-      if (format.containsKey(MediaFormat.KEY_PROFILE)) {
-          format.removeKey(MediaFormat.KEY_PROFILE)
-          // Also remove level just in case, though usually profile implies level
-          if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-             if (format.containsKey(MediaFormat.KEY_LEVEL)) format.removeKey(MediaFormat.KEY_LEVEL)
+      @Suppress("NewApi")
+      fun removeKeys() {
+          if (format.containsKey(MediaFormat.KEY_PROFILE)) {
+              format.removeKey(MediaFormat.KEY_PROFILE)
+              if (format.containsKey(MediaFormat.KEY_LEVEL)) format.removeKey(MediaFormat.KEY_LEVEL)
+          }
+          
+          if (format.containsKey("bitrate-mode")) {
+              format.removeKey("bitrate-mode")
+          }
+          
+          if (format.containsKey(MediaFormat.KEY_LATENCY)) {
+              format.removeKey(MediaFormat.KEY_LATENCY)
           }
       }
       
-      // Fallback 2: Remove bitrate-mode (revert to default)
-      if (format.containsKey("bitrate-mode")) {
-          format.removeKey("bitrate-mode")
-      }
-      
-      // Fallback 3: Remove low-latency (latency key)
-      if (format.containsKey(MediaFormat.KEY_LATENCY)) {
-          format.removeKey(MediaFormat.KEY_LATENCY)
+      if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+          removeKeys()
       }
 
       android.util.Log.i("VideoEncoder", "Retrying with relaxed format: $format")

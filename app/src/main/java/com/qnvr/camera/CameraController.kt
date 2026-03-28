@@ -53,7 +53,6 @@ class CameraController(private val context: Context) {
       color = android.graphics.Color.WHITE
       textSize = 32f
       isAntiAlias = true
-      setShadowLayer(2f, 1f, 1f, android.graphics.Color.BLACK)
   }
   private var lastWatermarkSecond = -1L
   private var watermarkPixels: IntArray? = null
@@ -384,6 +383,7 @@ class CameraController(private val context: Context) {
         watermarkHeight = totalH
         watermarkBitmap = Bitmap.createBitmap(width, totalH, Bitmap.Config.ARGB_8888)
         watermarkPixels = IntArray(width * totalH)
+        watermarkCanvas = null
         lastWatermarkSecond = -1
         android.util.Log.d("CameraController", "Created watermark bitmap ${width}x${totalH}")
     }
@@ -396,22 +396,19 @@ class CameraController(private val context: Context) {
         canvas.drawColor(0, android.graphics.PorterDuff.Mode.CLEAR)
 
         val text = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(java.util.Date())
-        val yOffset = if (showDeviceName) topH else 0
-        canvas.drawText(text, 20f, (totalH - 30).toFloat(), watermarkPaint)
-
+        
         if (showDeviceName && deviceName.isNotEmpty()) {
             canvas.drawText(deviceName, 20f, 40f, watermarkPaint)
         }
+        
+        val textY = if (showDeviceName) topH + 50f else 50f
+        canvas.drawText(text, 20f, textY, watermarkPaint)
 
         bmp.getPixels(watermarkPixels!!, 0, width, 0, 0, width, totalH)
         android.util.Log.d("CameraController", "Updated watermark text, pixels count: ${watermarkPixels!!.size}")
     }
 
     val pixels = watermarkPixels ?: return
-
-    if (showDeviceName) {
-        blendRegion(nv12, pixels, 0, 0, width, topH, width, height)
-    }
 
     val botYStart = if (showDeviceName) topH else 0
     blendRegion(nv12, pixels, height - botH, botYStart, width, botH, width, height)
@@ -426,12 +423,16 @@ class CameraController(private val context: Context) {
           val yPos = (yStart + j) * width
           for (i in 0 until width) {
               val c = pixels[pIdx++]
-              if ((c ushr 24) > 128) { 
+              val alpha = c ushr 24
+              if (alpha > 128) { 
                   nv12[yPos + i] = 255.toByte()
                   val uvY = (yStart + j) / 2
-                  val uvIdx = ySize + uvY * width + i * 2
-                  nv12[uvIdx] = 128.toByte()  // U = 128
-                  nv12[uvIdx + 1] = 128.toByte()  // V = 128
+                  val uvX = i / 2
+                  val uvIdx = ySize + uvY * width + uvX * 2
+                  if (uvIdx + 1 < nv12.size) {
+                      nv12[uvIdx] = 128.toByte()  // U = 128
+                      nv12[uvIdx + 1] = 128.toByte()  // V = 128
+                  }
                   modifiedCount++
               }
           }

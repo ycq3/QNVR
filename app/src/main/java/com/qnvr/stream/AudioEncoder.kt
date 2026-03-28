@@ -1,11 +1,15 @@
 package com.qnvr.stream
 
+import android.content.Context
+import android.Manifest
+import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.media.MediaRecorder
+import androidx.core.content.ContextCompat
 import java.util.concurrent.CopyOnWriteArrayList
 import io.sentry.Sentry
 
@@ -35,7 +39,7 @@ class AudioEncoder(
         callbacks.remove(callback)
     }
 
-    fun start() {
+    fun start(context: Context) {
         try {
             val format = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, sampleRate, channelCount)
             format.setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
@@ -49,7 +53,7 @@ class AudioEncoder(
             val channelConfig = if (channelCount == 1) AudioFormat.CHANNEL_IN_MONO else AudioFormat.CHANNEL_IN_STEREO
             val minBuffer = AudioRecord.getMinBufferSize(sampleRate, channelConfig, AudioFormat.ENCODING_PCM_16BIT)
             val bufferSize = if (minBuffer <= 0) 4096 else minBuffer * 2
-            audioRecord = createAudioRecord(channelConfig, bufferSize)
+            audioRecord = createAudioRecord(context, channelConfig, bufferSize)
             audioRecord?.startRecording()
 
             isStarted = true
@@ -75,30 +79,26 @@ class AudioEncoder(
         return AudioConfig(sampleRate, channelCount, config)
     }
 
-    private fun createAudioRecord(channelConfig: Int, bufferSize: Int): AudioRecord {
+    private fun createAudioRecord(context: Context, channelConfig: Int, bufferSize: Int): AudioRecord? {
         val sources = intArrayOf(MediaRecorder.AudioSource.CAMCORDER, MediaRecorder.AudioSource.MIC)
         for (source in sources) {
-            try {
-                val record = AudioRecord(
-                    source,
-                    sampleRate,
-                    channelConfig,
-                    AudioFormat.ENCODING_PCM_16BIT,
-                    bufferSize
-                )
-                if (record.state == AudioRecord.STATE_INITIALIZED) {
-                    return record
-                }
-                try { record.release() } catch (_: Exception) {}
-            } catch (_: Exception) {}
+            if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                try {
+                    val record = AudioRecord(
+                        source,
+                        sampleRate,
+                        channelConfig,
+                        AudioFormat.ENCODING_PCM_16BIT,
+                        bufferSize
+                    )
+                    if (record.state == AudioRecord.STATE_INITIALIZED) {
+                        return record
+                    }
+                    try { record.release() } catch (_: Exception) {}
+                } catch (_: Exception) {}
+            }
         }
-        return AudioRecord(
-            MediaRecorder.AudioSource.MIC,
-            sampleRate,
-            channelConfig,
-            AudioFormat.ENCODING_PCM_16BIT,
-            bufferSize
-        )
+        return null
     }
 
     private fun inputLoop(bufferSize: Int) {
