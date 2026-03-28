@@ -7,11 +7,11 @@ class ConfigStore(ctx: Context) {
   private val sp = ctx.getSharedPreferences("qnvr", Context.MODE_PRIVATE)
   fun getPort(): Int = sp.getInt("port", 18554)  // 将默认端口从8554改为18554
   fun setPort(v: Int) { sp.edit().putInt("port", v).apply() }
-  fun getBitrate(): Int = sp.getInt("bitrate", 4_000_000)
+  fun getBitrate(): Int = sp.getInt("bitrate", 2_000_000)
   fun setBitrate(v: Int) { sp.edit().putInt("bitrate", v).apply() }
-  fun getWidth(): Int = sp.getInt("width", 1280)
-  fun getHeight(): Int = sp.getInt("height", 720)
-  fun getFps(): Int = sp.getInt("fps", 30)
+  fun getWidth(): Int = sp.getInt("width", 1920)
+  fun getHeight(): Int = sp.getInt("height", 1080)
+  fun getFps(): Int = sp.getInt("fps", 20)
   fun setFps(v: Int) { sp.edit().putInt("fps", v).apply() }
   fun setResolution(w: Int, h: Int) { sp.edit().putInt("width", w).putInt("height", h).apply() }
   fun getUsername(): String = sp.getString("username", "admin") ?: "admin"
@@ -27,12 +27,12 @@ class ConfigStore(ctx: Context) {
   
   // 为不同编码格式提供合适的默认码率
   fun getMimeType(): String {
-    val mimeType = sp.getString("mimeType", MediaFormat.MIMETYPE_VIDEO_AVC) ?: MediaFormat.MIMETYPE_VIDEO_AVC
+    val mimeType = sp.getString("mimeType", MediaFormat.MIMETYPE_VIDEO_HEVC) ?: MediaFormat.MIMETYPE_VIDEO_HEVC
     // 确保返回的MIME类型是有效的
     return when (mimeType) {
       MediaFormat.MIMETYPE_VIDEO_AVC,
       MediaFormat.MIMETYPE_VIDEO_HEVC -> mimeType
-      else -> MediaFormat.MIMETYPE_VIDEO_AVC  // 默认使用H.264
+      else -> MediaFormat.MIMETYPE_VIDEO_HEVC  // 默认使用H.265
     }
   }
   
@@ -41,7 +41,7 @@ class ConfigStore(ctx: Context) {
     val validMimeType = when (v) {
       MediaFormat.MIMETYPE_VIDEO_AVC,
       MediaFormat.MIMETYPE_VIDEO_HEVC -> v
-      else -> MediaFormat.MIMETYPE_VIDEO_AVC  // 默认使用H.264
+      else -> MediaFormat.MIMETYPE_VIDEO_HEVC  // 默认使用H.265
     }
     sp.edit().putString("mimeType", validMimeType).apply() 
   }
@@ -61,7 +61,7 @@ class ConfigStore(ctx: Context) {
   // 根据编码格式获取合适的默认码率
   fun getBitrateForMimeType(mimeType: String = getMimeType()): Int {
     return when (mimeType) {
-      MediaFormat.MIMETYPE_VIDEO_HEVC -> 3_000_000  // HEVC通常需要较低码率
+      MediaFormat.MIMETYPE_VIDEO_HEVC -> 2_000_000  // HEVC最大码率原H.264一半
       else -> 4_000_000  // H.264和其他格式
     }
   }

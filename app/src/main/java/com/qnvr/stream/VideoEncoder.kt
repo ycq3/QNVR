@@ -17,7 +17,8 @@ class VideoEncoder(
     private val mimeType: String = MediaFormat.MIMETYPE_VIDEO_AVC,
     private val useSurfaceInput: Boolean = true,
     private val lowLatencyMode: Boolean = true,
-    private val enableFrameDrop: Boolean = true
+    private val enableFrameDrop: Boolean = true,
+    private val enableAdaptiveBitrate: Boolean = true // 新增：启用自适应码率
 ) {
     private lateinit var codec: MediaCodec
     private var inputSurface: Surface? = null
@@ -29,6 +30,8 @@ class VideoEncoder(
     private var pps: ByteArray? = null
     private var isStarted = false
     private var selectedEncoder: EncoderInfo? = null
+    private var adaptiveBitrateController: AdaptiveBitrateController? = null
+    private var currentAdaptiveBitrate: Int = bitrate
   
   data class EncodedFrame(val data: ByteArray, val timeUs: Long, val keyframe: Boolean)
   data class CodecConfig(val vps: ByteArray?, val sps: ByteArray, val pps: ByteArray)
@@ -45,9 +48,10 @@ class VideoEncoder(
       callbacks.remove(callback)
   }
 
-  fun start() {
+  fun start(context: android.content.Context? = null) {
     try {
       android.util.Log.i("VideoEncoder", "Starting video encoder with mimeType: $mimeType, resolution: ${width}x${height}, bitrate: $bitrate")
+
       startEncoder()
       isStarted = true
       Thread { drainLoop() }.start()
@@ -104,18 +108,18 @@ class VideoEncoder(
     } else {
         format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420SemiPlanar)
     }
-    
+
     format.setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
     format.setInteger(MediaFormat.KEY_FRAME_RATE, fps)
     format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2)
     
     // Prefer VBR over CBR for compatibility, or check capabilities
-    // format.setInteger("bitrate-mode", MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)
-    // Use default bitrate mode or let the system decide, or try VBR if available
     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
-        // Use "bitrate-mode" string literal as KEY_BIT_RATE_MODE is API 21+
-        // and some build environments might have issues resolving it if compileSdk is low
         format.setInteger("bitrate-mode", MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR)
+    }
+    
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+        format.setInteger(MediaFormat.KEY_MAX_B_FRAMES, 2)
     }
     
     if (lowLatencyMode && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
@@ -159,7 +163,7 @@ class VideoEncoder(
     }
     
     if (selectedEncoder!!.isHardwareAccelerated) {
-        trySetHardwareSpecificOptions(format)
+        trySetHardwareSpecificOptions()
     }
     
     android.util.Log.i("VideoEncoder", "Configuring codec with format: $format")
@@ -205,8 +209,8 @@ class VideoEncoder(
               codec = MediaCodec.createEncoderByType(mimeType)
               // Reset format to basic
               val fallbackFormat = MediaFormat.createVideoFormat(mimeType, alignWidth, alignHeight)
-              fallbackFormat.setInteger(MediaFormat.KEY_COLOR_FORMAT, 
-                  if (useSurfaceInput) MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface 
+              fallbackFormat.setInteger(MediaFormat.KEY_COLOR_FORMAT,
+                  if (useSurfaceInput) MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface
                   else MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420SemiPlanar)
               fallbackFormat.setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
               fallbackFormat.setInteger(MediaFormat.KEY_FRAME_RATE, fps)
@@ -226,12 +230,13 @@ class VideoEncoder(
       codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
       if (useSurfaceInput) {
         inputSurface = codec.createInputSurface()
+        android.util.Log.i("VideoEncoder", "Created input surface: $inputSurface")
       }
       codec.start()
       android.util.Log.i("VideoEncoder", "Codec started successfully")
   }
   
-  private fun trySetHardwareSpecificOptions(format: MediaFormat) {
+  private fun trySetHardwareSpecificOptions() {
       try {
           val encoderNameLower = selectedEncoder?.name?.lowercase() ?: ""
           
@@ -263,6 +268,7 @@ class VideoEncoder(
 
   fun feedFrame(data: ByteArray, timeUs: Long) {
     if (useSurfaceInput || !isStarted) return
+    android.util.Log.d("VideoEncoder", "Feeding frame: size=${data.size}, timeUs=$timeUs")
     try {
         val index = codec.dequeueInputBuffer(10000)
         if (index >= 0) {
@@ -270,13 +276,16 @@ class VideoEncoder(
             buffer?.clear()
             buffer?.put(data)
             codec.queueInputBuffer(index, 0, data.size, timeUs, 0)
+            android.util.Log.d("VideoEncoder", "Frame queued successfully")
+        } else {
+            android.util.Log.w("VideoEncoder", "No input buffer available")
         }
     } catch (e: Exception) {
         android.util.Log.e("VideoEncoder", "Error feeding frame", e)
     }
   }
 
-  fun poll(timeoutUs: Long = 0): EncodedFrame? {
+  fun poll(): EncodedFrame? {
     // Deprecated: use callbacks instead
     return null
   }
@@ -318,22 +327,27 @@ class VideoEncoder(
           buf.position(info.offset)
           buf.limit(info.offset + info.size)
           buf.get(data)
-          
-          // Always try to parse SPS/PPS from keyframes if missing
+
           val isKeyFrame = (info.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0
           val isConfig = (info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0
-          
-          if (isConfig || (isKeyFrame && sps == null)) {
+
+          if (isConfig || isKeyFrame) {
             parseSpsPps(data)
+            android.util.Log.i("VideoEncoder", "Parsed config/keyframe: isKeyFrame=$isKeyFrame, isConfig=$isConfig, sps=${sps?.size}, pps=${pps?.size}")
           }
 
-          val frame = EncodedFrame(data, info.presentationTimeUs, isKeyFrame || isConfig)
-          
-          for (cb in callbacks) {
-              cb.onFrame(frame)
+          if (callbacks.isNotEmpty()) {
+            val frame = EncodedFrame(data, info.presentationTimeUs, isKeyFrame || isConfig)
+            for (cb in callbacks) {
+                cb.onFrame(frame)
+            }
+            android.util.Log.d("VideoEncoder", "Frame sent to callback: size=${data.size}, timeUs=${info.presentationTimeUs}, keyframe=$isKeyFrame")
           }
-          
+
           codec.releaseOutputBuffer(index, false)
+        } else if (index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+          parseCodecConfigFromFormat(codec.outputFormat)
+          android.util.Log.i("VideoEncoder", "Output format changed: ${codec.outputFormat}")
         }
       } catch (e: Exception) {
         if (isStarted) {
@@ -345,38 +359,99 @@ class VideoEncoder(
     }
   }
 
+  private fun parseCodecConfigFromFormat(format: MediaFormat) {
+    try {
+      if (format.containsKey("csd-0")) {
+        format.getByteBuffer("csd-0")?.let { parseSpsPps(byteBufferToArray(it)) }
+      }
+      if (format.containsKey("csd-1")) {
+        format.getByteBuffer("csd-1")?.let { parseSpsPps(byteBufferToArray(it)) }
+      }
+      if (format.containsKey("csd-2")) {
+        format.getByteBuffer("csd-2")?.let { parseSpsPps(byteBufferToArray(it)) }
+      }
+      android.util.Log.i("VideoEncoder", "Parsed codec config from output format, hasSps=${sps != null}, hasPps=${pps != null}, hasVps=${vps != null}")
+    } catch (e: Exception) {
+      android.util.Log.w("VideoEncoder", "Failed to parse codec config from output format", e)
+    }
+  }
+
+  private fun byteBufferToArray(buffer: ByteBuffer): ByteArray {
+    val dup = buffer.duplicate()
+    val bytes = ByteArray(dup.remaining())
+    dup.get(bytes)
+    return bytes
+  }
+
   private fun parseSpsPps(conf: ByteArray) {
+    val nals = splitNalUnits(conf)
+    if (nals.isEmpty() && conf.isNotEmpty()) {
+      processConfigNal(conf)
+      return
+    }
+    for (nal in nals) {
+      processConfigNal(nal)
+    }
+  }
+
+  private fun splitNalUnits(data: ByteArray): List<ByteArray> {
+    val annexB = splitAnnexBNals(data)
+    if (annexB.isNotEmpty()) return annexB
+    return splitLengthPrefixedNals(data)
+  }
+
+  private fun splitAnnexBNals(data: ByteArray): List<ByteArray> {
+    val out = mutableListOf<ByteArray>()
     var i = 0
-    while (i + 2 < conf.size) {
-      if (i + 3 < conf.size && conf[i].toInt() == 0 && conf[i + 1].toInt() == 0 && conf[i + 2].toInt() == 0 && conf[i + 3].toInt() == 1) {
+    while (i + 2 < data.size) {
+      if (i + 3 < data.size && data[i].toInt() == 0 && data[i + 1].toInt() == 0 && data[i + 2].toInt() == 0 && data[i + 3].toInt() == 1) {
         val start = i + 4
         var j = start
-        while (j + 2 < conf.size) {
-          if (j + 3 < conf.size && conf[j].toInt() == 0 && conf[j + 1].toInt() == 0 && conf[j + 2].toInt() == 0 && conf[j + 3].toInt() == 1) break
-          if (conf[j].toInt() == 0 && conf[j + 1].toInt() == 0 && conf[j + 2].toInt() == 1) break
+        while (j + 2 < data.size) {
+          if (j + 3 < data.size && data[j].toInt() == 0 && data[j + 1].toInt() == 0 && data[j + 2].toInt() == 0 && data[j + 3].toInt() == 1) break
+          if (data[j].toInt() == 0 && data[j + 1].toInt() == 0 && data[j + 2].toInt() == 1) break
           j++
         }
-        val end = if (j + 2 < conf.size) j else conf.size
-        val nal = conf.copyOfRange(start, end)
-        processConfigNal(nal)
+        val end = if (j + 2 < data.size) j else data.size
+        if (start < end) {
+          out.add(data.copyOfRange(start, end))
+        }
         i = j
-      } 
-      else if (conf[i].toInt() == 0 && conf[i + 1].toInt() == 0 && conf[i + 2].toInt() == 1) {
+      } else if (data[i].toInt() == 0 && data[i + 1].toInt() == 0 && data[i + 2].toInt() == 1) {
         val start = i + 3
         var j = start
-        while (j + 2 < conf.size) {
-          if (j + 3 < conf.size && conf[j].toInt() == 0 && conf[j + 1].toInt() == 0 && conf[j + 2].toInt() == 0 && conf[j + 3].toInt() == 1) break
-          if (conf[j].toInt() == 0 && conf[j + 1].toInt() == 0 && conf[j + 2].toInt() == 1) break
+        while (j + 2 < data.size) {
+          if (j + 3 < data.size && data[j].toInt() == 0 && data[j + 1].toInt() == 0 && data[j + 2].toInt() == 0 && data[j + 3].toInt() == 1) break
+          if (data[j].toInt() == 0 && data[j + 1].toInt() == 0 && data[j + 2].toInt() == 1) break
           j++
         }
-        val end = if (j + 2 < conf.size) j else conf.size
-        val nal = conf.copyOfRange(start, end)
-        processConfigNal(nal)
+        val end = if (j + 2 < data.size) j else data.size
+        if (start < end) {
+          out.add(data.copyOfRange(start, end))
+        }
         i = j
       } else {
         i++
       }
     }
+    return out
+  }
+
+  private fun splitLengthPrefixedNals(data: ByteArray): List<ByteArray> {
+    val out = mutableListOf<ByteArray>()
+    var offset = 0
+    while (offset + 4 <= data.size) {
+      val nalSize = ((data[offset].toInt() and 0xFF) shl 24) or
+        ((data[offset + 1].toInt() and 0xFF) shl 16) or
+        ((data[offset + 2].toInt() and 0xFF) shl 8) or
+        (data[offset + 3].toInt() and 0xFF)
+      if (nalSize <= 0 || offset + 4 + nalSize > data.size) {
+        return emptyList()
+      }
+      out.add(data.copyOfRange(offset + 4, offset + 4 + nalSize))
+      offset += 4 + nalSize
+    }
+    return if (offset == data.size) out else emptyList()
   }
 
   private fun processConfigNal(nal: ByteArray) {
@@ -391,4 +466,83 @@ class VideoEncoder(
       if (type == 8) pps = nal
     }
   }
+  
+  /**
+   * 动态调整码率（自适应码率控制）
+   */
+  fun adjustBitrate(
+      frameComplexity: Float = 0.5f,
+      bufferLevel: Float = 0.5f,
+      packetLossRate: Float = 0.0f
+  ) {
+    if (!enableAdaptiveBitrate || adaptiveBitrateController == null) return
+    
+    val newBitrate = adaptiveBitrateController!!.getCurrentBitrate(
+        frameComplexity = frameComplexity,
+        bufferLevel = bufferLevel,
+        packetLossRate = packetLossRate
+    )
+    
+    if (newBitrate != currentAdaptiveBitrate && isStarted) {
+      currentAdaptiveBitrate = newBitrate
+      
+      // 动态调整编码器码率
+      try {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.KITKAT) {
+          val params = android.os.Bundle()
+          params.putInt(MediaCodec.PARAMETER_KEY_VIDEO_BITRATE, newBitrate)
+          codec.setParameters(params)
+          
+          android.util.Log.i("VideoEncoder", "动态调整码率: ${newBitrate/1000}kbps")
+        }
+      } catch (e: Exception) {
+        android.util.Log.w("VideoEncoder", "动态调整码率失败", e)
+      }
+    }
+  }
+  
+  /**
+   * 获取自适应码率统计信息
+   */
+  fun getAdaptiveBitrateStats(): AdaptiveBitrateController.AdaptiveBitrateStats? {
+    return adaptiveBitrateController?.getStatistics()
+  }
+  
+  /**
+   * 手动设置码率（覆盖自适应控制）
+   */
+  fun setBitrateManually(bitrate: Int) {
+    adaptiveBitrateController?.setBitrate(bitrate)
+    currentAdaptiveBitrate = bitrate
+    
+    // 立即应用新的码率设置
+    if (isStarted) {
+      try {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.KITKAT) {
+          val params = android.os.Bundle()
+          params.putInt(MediaCodec.PARAMETER_KEY_VIDEO_BITRATE, bitrate)
+          codec.setParameters(params)
+          
+          android.util.Log.i("VideoEncoder", "手动设置码率: ${bitrate/1000}kbps")
+        }
+      } catch (e: Exception) {
+        android.util.Log.w("VideoEncoder", "手动设置码率失败", e)
+      }
+    }
+  }
+  
+  /**
+   * 重置自适应码率控制
+   */
+  fun resetAdaptiveBitrate() {
+    adaptiveBitrateController?.reset()
+    currentAdaptiveBitrate = bitrate
+    
+    android.util.Log.i("VideoEncoder", "重置自适应码率控制")
+  }
+  
+  /**
+   * 获取当前实际码率
+   */
+  fun getCurrentBitrate(): Int = currentAdaptiveBitrate
 }

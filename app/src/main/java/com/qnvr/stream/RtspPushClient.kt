@@ -68,7 +68,8 @@ class RtspPushClient(
         val sdp = buildSdp(videoConfig, audioConfig, host)
 
         var cseq = 1
-        sendRequest("ANNOUNCE", requestUrl, authHeader, cseq++, sdp)
+        val announceCseq = cseq++
+        sendRequest("ANNOUNCE", requestUrl, authHeader, announceCseq, sdp)
         var sessionId = sendSetup(requestUrl, authHeader, cseq++, "trackID=0", "0-1", null)
         if (audioConfig != null) {
             sessionId = sendSetup(requestUrl, authHeader, cseq++, "trackID=1", "2-3", sessionId)
@@ -172,7 +173,7 @@ class RtspPushClient(
         }
         while (running.get()) {
             val frame = queue.poll(200, TimeUnit.MILLISECONDS) ?: continue
-            val ts90k = ((frame.timeUs / 1000L) * 90L).toInt()
+            val ts90k = ((frame.timeUs / 1000L) * 90L).toInt() and 0x7FFFFFFF
             if (frame.keyframe) {
                 val cfg = try { videoEncoder.getCodecConfig() } catch (_: Exception) { null }
                 if (cfg != null) {
@@ -195,7 +196,7 @@ class RtspPushClient(
         while (running.get()) {
             if (Thread.currentThread().isInterrupted) break
             val frame = queue.poll(200, TimeUnit.MILLISECONDS) ?: continue
-            val ts = ((frame.timeUs * sampleRate) / 1_000_000L).toInt()
+            val ts = ((frame.timeUs * sampleRate) / 1_000_000L).toInt() and 0x7FFFFFFF
             sender.sendAacFrame(frame.data, ts, 2)
         }
     }
@@ -312,8 +313,9 @@ class RtspPushClient(
                     j++
                 }
                 val end = if (j + 2 < data.size) j else data.size
-                val nal = data.copyOfRange(start, end)
-                out.add(nal)
+                if (start < end) {
+                    out.add(data.copyOfRange(start, end))
+                }
                 i = j
             } else if (data[i].toInt() == 0 && data[i + 1].toInt() == 0 && data[i + 2].toInt() == 1) {
                 val start = i + 3
@@ -324,8 +326,9 @@ class RtspPushClient(
                     j++
                 }
                 val end = if (j + 2 < data.size) j else data.size
-                val nal = data.copyOfRange(start, end)
-                out.add(nal)
+                if (start < end) {
+                    out.add(data.copyOfRange(start, end))
+                }
                 i = j
             } else {
                 i++

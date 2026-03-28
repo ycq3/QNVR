@@ -6,7 +6,7 @@ import kotlin.random.Random
 import io.sentry.Sentry
 
 class RtpStreamSender(
-    private val out: OutputStream, 
+    private val out: OutputStream,
     private val mimeType: String = MediaFormat.MIMETYPE_VIDEO_AVC
 ) {
   private var seq = Random.nextInt(0, 65535)
@@ -106,9 +106,9 @@ class RtpStreamSender(
     val b = ByteArray(12)
     b[0] = 0x80.toByte()
     b[1] = 96.toByte()
+    seq = (seq + 1) and 0xFFFF
     b[2] = ((seq shr 8) and 0xFF).toByte()
     b[3] = (seq and 0xFF).toByte()
-    seq = (seq + 1) and 0xFFFF
     b[4] = ((ts90k shr 24) and 0xFF).toByte()
     b[5] = ((ts90k shr 16) and 0xFF).toByte()
     b[6] = ((ts90k shr 8) and 0xFF).toByte()

@@ -44,6 +44,8 @@ class CameraController(private val context: Context) {
   private var statsMonitor: com.qnvr.StatsMonitor? = null
 
   private var targetFps = 30
+  private var targetWidth = 1920
+  private var targetHeight = 1080
   private var lastFrameTime = 0L
   private var watermarkBitmap: Bitmap? = null
   private var watermarkCanvas: Canvas? = null
@@ -66,7 +68,15 @@ class CameraController(private val context: Context) {
 
   fun setEncoderSurface(surface: android.view.Surface) {
     encoderSurface = surface
-    if (session != null) restartSession()
+    if (session != null) {
+        android.util.Log.i("CameraController", "Encoder surface set, restarting session")
+        restartSession()
+    }
+  }
+
+  fun setResolution(width: Int, height: Int) {
+      targetWidth = width
+      targetHeight = height
   }
 
   fun setFps(newFps: Int) {
@@ -81,6 +91,7 @@ class CameraController(private val context: Context) {
               builder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, Range(newFps, newFps))
               builder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO)
               builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
+              builder.set(CaptureRequest.NOISE_REDUCTION_MODE, 2) // HIGH
               applyZoom(builder)
               session!!.setRepeatingRequest(builder.build(), null, handler)
           } catch (e: Exception) {
@@ -133,62 +144,52 @@ class CameraController(private val context: Context) {
     val chars = manager.getCameraCharacteristics(cameraId)
     val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
     val supported = map?.getOutputSizes(android.graphics.ImageFormat.YUV_420_888) ?: arrayOf(Size(640, 480))
-    val preferred = supported.firstOrNull { it.width == 1280 && it.height == 720 } ?: supported.maxBy { it.width * it.height }
-    imageReader = ImageReader.newInstance(preferred.width, preferred.height, android.graphics.ImageFormat.YUV_420_888, 3)
+    val preferred = supported.firstOrNull { it.width == targetWidth && it.height == targetHeight } 
+        ?: supported.firstOrNull { it.width == 1920 && it.height == 1080 }
+        ?: supported.firstOrNull { it.width == 1280 && it.height == 720 } 
+        ?: supported.maxBy { it.width * it.height }
+    imageReader = ImageReader.newInstance(preferred!!.width, preferred.height, android.graphics.ImageFormat.YUV_420_888, 3)
     imageReader!!.setOnImageAvailableListener({ r ->
       val img = r.acquireLatestImage() ?: return@setOnImageAvailableListener
-      
-      // FPS Control: Drop frames if we are going too fast
-      val now = System.currentTimeMillis()
-      if (now - lastFrameTime < (1000 / targetFps) - 5) { // 5ms tolerance
-          img.close()
-          return@setOnImageAvailableListener
-      }
-      lastFrameTime = now
-      
-      statsMonitor?.onFrame()
-      
+
       val width = img.width
       val height = img.height
-      
-      // Convert directly to NV12 (YUV420SemiPlanar) which is standard for MediaCodec
+
+      statsMonitor?.onFrame()
+
       val nv12 = yuv420ToNv12(img)
       img.close()
 
-      // RTSP Stream feeding
-      if (enableRtspWatermark && rtspEncoder != null) {
+      if (rtspEncoder != null) {
           try {
-              // 复制一份数据给 RTSP 编码器，避免与预览共享缓冲区导致数据竞争
               val nv12Copy = nv12.copyOf()
-              // Optimized watermark: Overlay on NV12 buffer directly
-              addWatermarkDirect(nv12Copy, width, height)
+              if (enableRtspWatermark) {
+                  android.util.Log.d("CameraController", "Adding watermark to frame ${width}x${height}")
+                  addWatermarkDirect(nv12Copy, width, height)
+              }
               rtspEncoder?.feedFrame(nv12Copy, System.nanoTime() / 1000)
           } catch (e: Exception) {
               io.sentry.Sentry.captureException(e)
           }
       }
 
-      // HTTP Preview (JPEG) - Rate limited to reduce memory pressure
-      // Only generate preview at 5 FPS (200ms interval) to avoid excessive allocations
+      val now = System.currentTimeMillis()
       if (now - lastPreviewTime >= (1000 / previewFps)) {
            lastPreviewTime = now
-           
-           // Reuse NV21 buffer to avoid repeated allocations
+
            val nv21 = if (nv21Buffer != null && nv21Buffer!!.size == nv12.size) {
                nv21Buffer!!
            } else {
                ByteArray(nv12.size).also { nv21Buffer = it }
            }
-           
-           // Convert NV12 to NV21 for preview (Swap U/V)
-           System.arraycopy(nv12, 0, nv21, 0, width * height) // Copy Y
-           for (i in width * height until nv12.size step 2) { // Swap UV
+
+           System.arraycopy(nv12, 0, nv21, 0, width * height)
+           for (i in width * height until nv12.size step 2) {
                nv21[i] = nv12[i + 1]
                nv21[i + 1] = nv12[i]
            }
-           
+
            val yuvImage = android.graphics.YuvImage(nv21, android.graphics.ImageFormat.NV21, width, height, null)
-           // Reuse ByteArrayOutputStream to avoid repeated allocations
            jpegOutputStream.reset()
            yuvImage.compressToJpeg(android.graphics.Rect(0, 0, width, height), 70, jpegOutputStream)
            val jpegData = jpegOutputStream.toByteArray()
@@ -202,9 +203,14 @@ class CameraController(private val context: Context) {
     val targets = mutableListOf<Surface>()
     imageReader?.surface?.let { targets.add(it) }
     if (!enableRtspWatermark) {
-      encoderSurface?.let { targets.add(it) }
+        encoderSurface?.let {
+            targets.add(it)
+            android.util.Log.i("CameraController", "Added encoder surface to camera targets: $it")
+        }
     }
+    
     sessionTargets = targets.toList()
+    android.util.Log.i("CameraController", "Creating session with ${sessionTargets.size} targets")
     device.createCaptureSession(sessionTargets, object : CameraCaptureSession.StateCallback() {
       override fun onConfigured(s: CameraCaptureSession) {
         session = s
@@ -213,6 +219,7 @@ class CameraController(private val context: Context) {
         builder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, Range(fps, fps))
         builder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO)
         builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
+        builder.set(CaptureRequest.NOISE_REDUCTION_MODE, 2) // HIGH
         applyZoom(builder)
         try {
           s.setRepeatingRequest(builder.build(), object : CameraCaptureSession.CaptureCallback() {
@@ -243,6 +250,7 @@ class CameraController(private val context: Context) {
     builder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, Range(fps, fps))
     builder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO)
     builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
+    builder.set(CaptureRequest.NOISE_REDUCTION_MODE, 2) // HIGH
     applyZoom(builder)
     s.setRepeatingRequest(builder.build(), null, handler)
   }
@@ -363,60 +371,73 @@ class CameraController(private val context: Context) {
 
   private fun addWatermarkDirect(nv12: ByteArray, width: Int, height: Int) {
     if (!enableRtspWatermark) return
-    
+
+    val topH = 80
+    val botH = 80
+    val totalH = if (showDeviceName) topH + botH else botH
+
     val now = System.currentTimeMillis()
     val second = now / 1000
-    if (second != lastWatermarkSecond || watermarkBitmap == null || watermarkBitmap!!.width != width) {
+
+    if (watermarkBitmap == null || watermarkWidth != width || watermarkHeight != totalH) {
+        watermarkWidth = width
+        watermarkHeight = totalH
+        watermarkBitmap = Bitmap.createBitmap(width, totalH, Bitmap.Config.ARGB_8888)
+        watermarkPixels = IntArray(width * totalH)
+        lastWatermarkSecond = -1
+        android.util.Log.d("CameraController", "Created watermark bitmap ${width}x${totalH}")
+    }
+
+    if (second != lastWatermarkSecond) {
         lastWatermarkSecond = second
-        
-        val topH = 80
-        val botH = 80
-        val totalH = if (showDeviceName) topH + botH else botH
-        
-        if (watermarkBitmap == null || watermarkWidth != width || watermarkHeight != totalH) {
-            watermarkWidth = width
-            watermarkHeight = totalH
-            watermarkBitmap = Bitmap.createBitmap(width, totalH, Bitmap.Config.ARGB_8888)
-            watermarkPixels = IntArray(width * totalH)
-        }
-        
+
         val bmp = watermarkBitmap!!
         val canvas = watermarkCanvas ?: Canvas(bmp).also { watermarkCanvas = it }
         canvas.drawColor(0, android.graphics.PorterDuff.Mode.CLEAR)
-        
+
         val text = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(java.util.Date())
         val yOffset = if (showDeviceName) topH else 0
         canvas.drawText(text, 20f, (totalH - 30).toFloat(), watermarkPaint)
-        
+
         if (showDeviceName && deviceName.isNotEmpty()) {
             canvas.drawText(deviceName, 20f, 40f, watermarkPaint)
         }
-        
+
         bmp.getPixels(watermarkPixels!!, 0, width, 0, 0, width, totalH)
+        android.util.Log.d("CameraController", "Updated watermark text, pixels count: ${watermarkPixels!!.size}")
     }
-    
+
     val pixels = watermarkPixels ?: return
-    val topH = 80
-    val botH = 80
-    
+
     if (showDeviceName) {
-        blendRegion(nv12, pixels, 0, 0, width, topH, width)
+        blendRegion(nv12, pixels, 0, 0, width, topH, width, height)
     }
-    
+
     val botYStart = if (showDeviceName) topH else 0
-    blendRegion(nv12, pixels, height - botH, botYStart, width, botH, width)
+    blendRegion(nv12, pixels, height - botH, botYStart, width, botH, width, height)
+    android.util.Log.d("CameraController", "Applied watermark to Y plane, botYStart=$botYStart, botH=$botH")
   }
   
-  private fun blendRegion(nv12: ByteArray, pixels: IntArray, yStart: Int, pixelYStart: Int, width: Int, h: Int, pixelWidth: Int) {
+  private fun blendRegion(nv12: ByteArray, pixels: IntArray, yStart: Int, pixelYStart: Int, width: Int, h: Int, pixelWidth: Int, height: Int) {
+      val ySize = width * height
       var pIdx = pixelYStart * pixelWidth
+      var modifiedCount = 0
       for (j in 0 until h) {
           val yPos = (yStart + j) * width
           for (i in 0 until width) {
               val c = pixels[pIdx++]
               if ((c ushr 24) > 128) { 
                   nv12[yPos + i] = 255.toByte()
+                  val uvY = (yStart + j) / 2
+                  val uvIdx = ySize + uvY * width + i * 2
+                  nv12[uvIdx] = 128.toByte()  // U = 128
+                  nv12[uvIdx + 1] = 128.toByte()  // V = 128
+                  modifiedCount++
               }
           }
+      }
+      if (modifiedCount > 0) {
+          android.util.Log.d("CameraController", "blendRegion: modified $modifiedCount pixels at yStart=$yStart, h=$h")
       }
   }
   

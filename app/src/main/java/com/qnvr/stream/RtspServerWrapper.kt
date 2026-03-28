@@ -26,7 +26,9 @@ class RtspServerWrapper(
     bitrate: Int, 
     private val encoderName: String? = null,
     private val mimeType: String = MediaFormat.MIMETYPE_VIDEO_AVC,
-    private val enableAudio: Boolean = true
+    private val enableAudio: Boolean = true,
+    private val enableAdaptiveBitrate: Boolean = true, // 新增：启用自适应码率
+    private val enableNetworkOptimization: Boolean = true // 新增：启用网络优化
 ) {
   private var server: ServerSocket? = null
   private val running = AtomicBoolean(false)
@@ -45,6 +47,8 @@ class RtspServerWrapper(
   private var pushClient: RtspPushClient? = null
   private var pushEnabled = false
   private var pushUrl: String? = null
+  private var networkOptimizer: NetworkPerformanceOptimizer? = null
+  private var adaptiveBitrateEnabled = enableAdaptiveBitrate
 
   fun start() {
     logAvailableEncoders()
@@ -83,14 +87,27 @@ class RtspServerWrapper(
     }
 
     try {
+      // 初始化网络性能优化器
+      if (enableNetworkOptimization) {
+        networkOptimizer = NetworkPerformanceOptimizer(ctx)
+        android.util.Log.i("RtspServerWrapper", "网络性能优化已启用")
+      }
+      
+      // 始终优先使用 Surface 模式以获得最佳性能，除非开启了必须用软件叠加的水印
       val useSurface = !camera.isRtspWatermarkEnabled()
       android.util.Log.i("RtspServerWrapper", "Initializing video encoder with mimeType: $mimeType, encoderName: $encoderName, useSurface: $useSurface")
-      encoder = com.qnvr.stream.VideoEncoder(width, height, fps, bitrate, encoderName, mimeType, useSurface)
-      encoder.start()
+      encoder = com.qnvr.stream.VideoEncoder(
+          width, height, fps, bitrate, encoderName, mimeType, useSurface,
+          enableAdaptiveBitrate = adaptiveBitrateEnabled
+      )
+      
+      // Start encoder FIRST so it creates the input surface
+      encoder.start(ctx)
       
       if (useSurface) {
           val surface = encoder.getInputSurface()
           if (surface != null) {
+              android.util.Log.i("RtspServerWrapper", "Setting encoder surface to camera")
               camera.setEncoderSurface(surface)
           } else {
               android.util.Log.e("RtspServerWrapper", "Encoder input surface is null but useSurface is true")
@@ -381,12 +398,10 @@ class RtspServerWrapper(
 
   private fun streamLoop(out: OutputStream, channel: Int, queue: java.util.concurrent.LinkedBlockingQueue<com.qnvr.stream.VideoEncoder.EncodedFrame>) {
     val sender = com.qnvr.stream.RtpStreamSender(out, mimeType)
-    
+
     if (this::encoder.isInitialized) {
-        // Request a key frame immediately for fast startup
         encoder.requestKeyFrame()
-        
-        // Send initial configuration (SPS/PPS/VPS)
+
         val config = encoder.getCodecConfig()
         if (config != null) {
             val ts = 0
@@ -395,15 +410,13 @@ class RtspServerWrapper(
             sender.sendNal(config.pps, ts, channel)
         }
     }
-    
+
     while (true) {
       try {
         val frame = queue.poll(200, java.util.concurrent.TimeUnit.MILLISECONDS) ?: continue
-        
+
         val ts90k = ((frame.timeUs / 1000L) * 90L).toInt()
-        
-        // Always prepend SPS/PPS before keyframes to ensure decoding capability
-        // This handles cases where the initial config was missed or dropped
+
         if (frame.keyframe && this::encoder.isInitialized) {
              val config = encoder.getCodecConfig()
              if (config != null) {
@@ -412,15 +425,16 @@ class RtspServerWrapper(
                  sender.sendNal(config.pps, ts90k, channel)
              }
         }
-        
+
         val nals = splitAnnexB(frame.data)
+        android.util.Log.d("RtspServerWrapper", "Frame ${if (frame.keyframe) "key" else "p"} frame, size=${frame.data.size}, nals=${nals.size}")
         for (nal in nals) {
             if (nal.isNotEmpty()) {
+                android.util.Log.d("RtspServerWrapper", "Sending NAL: size=${nal.size}")
                 sender.sendNal(nal, ts90k, channel)
             }
         }
       } catch (e: Exception) {
-        // Socket closed or error
         break
       }
     }
@@ -530,11 +544,16 @@ class RtspServerWrapper(
       audioSdp
   }
 
+  private fun splitVideoNals(data: ByteArray): List<ByteArray> {
+    val annexB = splitAnnexB(data)
+    if (annexB.isNotEmpty()) return annexB
+    return splitLengthPrefixedNals(data)
+  }
+
   private fun splitAnnexB(data: ByteArray): List<ByteArray> {
     val out = mutableListOf<ByteArray>()
     var i = 0
     while (i + 2 < data.size) {
-      // Check for 00 00 00 01 (4 bytes)
       if (i + 3 < data.size && data[i].toInt() == 0 && data[i + 1].toInt() == 0 && data[i + 2].toInt() == 0 && data[i + 3].toInt() == 1) {
         val start = i + 4
         var j = start
@@ -544,11 +563,11 @@ class RtspServerWrapper(
           j++
         }
         val end = if (j + 2 < data.size) j else data.size
-        val nal = data.copyOfRange(start, end)
-        out.add(nal)
+        if (start < end) {
+          out.add(data.copyOfRange(start, end))
+        }
         i = j
-      } 
-      // Check for 00 00 01 (3 bytes)
+      }
       else if (data[i].toInt() == 0 && data[i + 1].toInt() == 0 && data[i + 2].toInt() == 1) {
         val start = i + 3
         var j = start
@@ -558,14 +577,32 @@ class RtspServerWrapper(
           j++
         }
         val end = if (j + 2 < data.size) j else data.size
-        val nal = data.copyOfRange(start, end)
-        out.add(nal)
+        if (start < end) {
+          out.add(data.copyOfRange(start, end))
+        }
         i = j
       } else {
         i++
       }
     }
     return out
+  }
+
+  private fun splitLengthPrefixedNals(data: ByteArray): List<ByteArray> {
+    val out = mutableListOf<ByteArray>()
+    var offset = 0
+    while (offset + 4 <= data.size) {
+      val nalSize = ((data[offset].toInt() and 0xFF) shl 24) or
+        ((data[offset + 1].toInt() and 0xFF) shl 16) or
+        ((data[offset + 2].toInt() and 0xFF) shl 8) or
+        (data[offset + 3].toInt() and 0xFF)
+      if (nalSize <= 0 || offset + 4 + nalSize > data.size) {
+        return emptyList()
+      }
+      out.add(data.copyOfRange(offset + 4, offset + 4 + nalSize))
+      offset += 4 + nalSize
+    }
+    return if (offset == data.size) out else emptyList()
   }
 
   fun updateEncoder(w: Int, h: Int, f: Int, b: Int, encName: String? = null, mime: String = MediaFormat.MIMETYPE_VIDEO_AVC) {

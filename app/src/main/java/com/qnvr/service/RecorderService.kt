@@ -40,6 +40,7 @@ class RecorderService : LifecycleService(), ConfigApplier, SharedPreferences.OnS
   private lateinit var sp: SharedPreferences
   
   private var isStoppingManually = false
+  private var cameraStarted = false
   
   companion object {
       private var instance: RecorderService? = null
@@ -83,6 +84,15 @@ class RecorderService : LifecycleService(), ConfigApplier, SharedPreferences.OnS
     val encoderName = cfg.getEncoderName() ?: "auto"
     
     android.util.Log.i("RecorderService", "Creating RTSP server with port: ${cfg.getPort()}, username: ${cfg.getUsername()}, password: ${cfg.getPassword()}, encoderName: $encoderName, mimeType: $mimeType, bitrate: $bitrate")
+
+    camera.setWatermarkEnabled(true)
+    android.util.Log.i("RecorderService", "Setting RTSP watermark enabled")
+    camera.setRtspWatermarkEnabled(true)
+    android.util.Log.i("RecorderService", "RTSP watermark enabled: ${camera.isRtspWatermarkEnabled()}")
+    camera.setZoom(1.0f)
+    camera.setDeviceName(cfg.getDeviceName())
+    camera.setShowDeviceName(cfg.isShowDeviceName())
+    camera.setResolution(cfg.getWidth(), cfg.getHeight())
     
     try { 
         rtspServer = RtspServerWrapper(
@@ -110,11 +120,26 @@ class RecorderService : LifecycleService(), ConfigApplier, SharedPreferences.OnS
       throw RuntimeException("Failed to create RTSP server", e)
     }
 
-    camera.setWatermarkEnabled(true)
-    camera.setRtspWatermarkEnabled(true)  // 启用RTSP流水印
-    camera.setZoom(1.0f)
-    camera.setDeviceName(cfg.getDeviceName())
-    camera.setShowDeviceName(cfg.isShowDeviceName())
+    val camPerm = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+    android.util.Log.i("RecorderService", "Camera permission granted: $camPerm")
+    
+    if (camPerm) {
+      try { 
+        android.util.Log.i("RecorderService", "Starting camera")
+        camera.start() 
+        cameraStarted = true
+        android.util.Log.i("RecorderService", "Camera started successfully")
+      } catch (e: Exception) { 
+        android.util.Log.e("RecorderService", "Failed to start camera", e)
+        Sentry.captureException(e)
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            android.widget.Toast.makeText(this, "Camera failed to start: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+        }
+      }
+    } else {
+      android.util.Log.w("RecorderService", "Camera permission missing; skipping camera start")
+      Sentry.captureMessage("Camera permission missing; skipping camera start")
+    }
 
     try { 
       android.util.Log.i("RecorderService", "Starting HTTP server")
@@ -134,26 +159,6 @@ class RecorderService : LifecycleService(), ConfigApplier, SharedPreferences.OnS
       android.util.Log.e("RecorderService", "Failed to start MJPEG streamer", e)
       Sentry.captureException(e) 
       // 不抛出异常，继续尝试启动其他服务
-    }
-
-    val camPerm = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
-    android.util.Log.i("RecorderService", "Camera permission granted: $camPerm")
-    
-    if (camPerm) {
-      try { 
-        android.util.Log.i("RecorderService", "Starting camera")
-        camera.start() 
-        android.util.Log.i("RecorderService", "Camera started successfully")
-      } catch (e: Exception) { 
-        android.util.Log.e("RecorderService", "Failed to start camera", e)
-        Sentry.captureException(e)
-        android.os.Handler(android.os.Looper.getMainLooper()).post {
-            android.widget.Toast.makeText(this, "Camera failed to start: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
-        }
-      }
-    } else {
-      android.util.Log.w("RecorderService", "Camera permission missing; skipping camera start")
-      Sentry.captureMessage("Camera permission missing; skipping camera start")
     }
 
     startForeground(1, buildNotification())
@@ -205,6 +210,21 @@ class RecorderService : LifecycleService(), ConfigApplier, SharedPreferences.OnS
   
   fun getStats(): com.qnvr.StatsData {
       return statsMonitor.getStats()
+  }
+
+  fun retryStartCameraIfNeeded() {
+    if (cameraStarted) return
+    val camPerm = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+    if (!camPerm) return
+    try {
+      android.util.Log.i("RecorderService", "Retrying camera start")
+      camera.start()
+      cameraStarted = true
+      android.util.Log.i("RecorderService", "Camera started successfully on retry")
+    } catch (e: Exception) {
+      android.util.Log.e("RecorderService", "Retry camera start failed", e)
+      Sentry.captureException(e)
+    }
   }
 
   override fun onBind(intent: Intent): IBinder? {

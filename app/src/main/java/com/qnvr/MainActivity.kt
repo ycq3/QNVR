@@ -77,7 +77,6 @@ class MainActivity : ComponentActivity() {
     cbAutoStart = findViewById<CheckBox>(R.id.cbAutoStart)
     cbBootStart = findViewById<CheckBox>(R.id.cbBootStart)
 
-    val cfg = ConfigStore(this)
     val sp = getSharedPreferences("qnvr", Context.MODE_PRIVATE)
     sp.registerOnSharedPreferenceChangeListener(configChangeListener)
 
@@ -97,9 +96,19 @@ class MainActivity : ComponentActivity() {
     stop.setOnClickListener { stopService() }
     
     handler.post(updateStatsRunnable)
+  }
 
+  override fun onResume() {
+    super.onResume()
     if (SettingsManager.isAutoStartEnabled(this)) {
-      ensurePermissionsAndStart()
+      handler.postDelayed({
+        val service = RecorderService.getInstance()
+        if (service != null) {
+          service.retryStartCameraIfNeeded()
+        } else {
+          ensurePermissionsAndStart()
+        }
+      }, 600)
     }
   }
   
@@ -203,6 +212,11 @@ class MainActivity : ComponentActivity() {
   }
 
   private fun startService() {
+    val service = RecorderService.getInstance()
+    if (service != null) {
+      service.retryStartCameraIfNeeded()
+      return
+    }
     val intent = Intent(this, RecorderService::class.java)
     ContextCompat.startForegroundService(this, intent)
   }
