@@ -233,22 +233,25 @@ class RecorderService : LifecycleService(), ConfigApplier, SharedPreferences.OnS
 
   override fun applyPort(port: Int) {
     try { rtspServer.stop() } catch (_: Exception) {}
-    try { 
+    // 等待 RTSP 服务器和编码器资源完全释放
+    android.util.Log.i("RecorderService", "Waiting for server resources to be released")
+    Thread.sleep(300)
+    try {
       rtspServer = RtspServerWrapper(
-          this, 
-          camera, 
-          port, 
-          cfg.getUsername(), 
-          cfg.getPassword(), 
-          cfg.getWidth(), 
-          cfg.getHeight(), 
-          cfg.getFps(), 
-          cfg.getBitrate(), 
+          this,
+          camera,
+          port,
+          cfg.getUsername(),
+          cfg.getPassword(),
+          cfg.getWidth(),
+          cfg.getHeight(),
+          cfg.getFps(),
+          cfg.getBitrate(),
           cfg.getEncoderName(),
           cfg.getMimeType(),
           cfg.isAudioEnabled()
       )
-      rtspServer.start() 
+      rtspServer.start()
       applyPushConfig(cfg.isPushEnabled(), cfg.getPushUrl(), cfg.isPushUseRemoteConfig(), cfg.getPushConfigUrl())
     } catch (e: Exception) { Sentry.captureException(e) }
   }

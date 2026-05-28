@@ -32,6 +32,8 @@ class VideoEncoder(
     private var selectedEncoder: EncoderInfo? = null
     private var adaptiveBitrateController: AdaptiveBitrateController? = null
     private var currentAdaptiveBitrate: Int = bitrate
+    private var lastStopTime: Long = 0L
+    private val encoderRestartDelayMs: Long = 500L
   
   data class EncodedFrame(val data: ByteArray, val timeUs: Long, val keyframe: Boolean)
   data class CodecConfig(val vps: ByteArray?, val sps: ByteArray, val pps: ByteArray)
@@ -51,6 +53,14 @@ class VideoEncoder(
   fun start(context: android.content.Context? = null) {
     try {
       android.util.Log.i("VideoEncoder", "Starting video encoder with mimeType: $mimeType, resolution: ${width}x${height}, bitrate: $bitrate")
+
+      // 如果距离上次停止时间过短，等待一段时间让硬件编码器资源完全释放
+      val timeSinceLastStop = System.currentTimeMillis() - lastStopTime
+      if (timeSinceLastStop < encoderRestartDelayMs) {
+          val waitTime = encoderRestartDelayMs - timeSinceLastStop
+          android.util.Log.i("VideoEncoder", "Waiting ${waitTime}ms before restarting encoder to allow hardware resources to be released")
+          Thread.sleep(waitTime)
+      }
 
       startEncoder()
       isStarted = true
@@ -169,70 +179,113 @@ class VideoEncoder(
     android.util.Log.i("VideoEncoder", "Configuring codec with format: $format")
     
     try {
-      configureAndStart(format)
-    } catch (e: Exception) {
-      @Suppress("NewApi")
-      fun removeKeys() {
-          if (format.containsKey(MediaFormat.KEY_PROFILE)) {
-              format.removeKey(MediaFormat.KEY_PROFILE)
-              if (format.containsKey(MediaFormat.KEY_LEVEL)) format.removeKey(MediaFormat.KEY_LEVEL)
-          }
-          
-          if (format.containsKey("bitrate-mode")) {
-              format.removeKey("bitrate-mode")
-          }
-          
-          if (format.containsKey(MediaFormat.KEY_LATENCY)) {
-              format.removeKey(MediaFormat.KEY_LATENCY)
-          }
-      }
-      
-      if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-          removeKeys()
-      }
-
-      android.util.Log.i("VideoEncoder", "Retrying with relaxed format: $format")
-      
-      try {
-          // Re-create codec instance as it might be in a bad state after configure failure
-          try { codec.release() } catch (_: Exception) {}
-          codec = MediaCodec.createByCodecName(selectedEncoder!!.name)
-          
           configureAndStart(format)
-      } catch (e2: Exception) {
-          android.util.Log.e("VideoEncoder", "Second attempt failed, trying software encoder fallback", e2)
-          
-          // Fallback 4: Try default encoder (system choice) which might be software
+      } catch (e: Exception) {
+          @Suppress("NewApi")
+          fun removeKeys() {
+              if (format.containsKey(MediaFormat.KEY_PROFILE)) {
+                  format.removeKey(MediaFormat.KEY_PROFILE)
+                  if (format.containsKey(MediaFormat.KEY_LEVEL)) format.removeKey(MediaFormat.KEY_LEVEL)
+              }
+
+              if (format.containsKey("bitrate-mode")) {
+                  format.removeKey("bitrate-mode")
+              }
+
+              if (format.containsKey(MediaFormat.KEY_LATENCY)) {
+                  format.removeKey(MediaFormat.KEY_LATENCY)
+              }
+          }
+
+          if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+              removeKeys()
+          }
+
+          android.util.Log.i("VideoEncoder", "Retrying with relaxed format: $format")
+
           try {
-              try { codec.release() } catch (_: Exception) {}
-              codec = MediaCodec.createEncoderByType(mimeType)
-              // Reset format to basic
-              val fallbackFormat = MediaFormat.createVideoFormat(mimeType, alignWidth, alignHeight)
-              fallbackFormat.setInteger(MediaFormat.KEY_COLOR_FORMAT,
-                  if (useSurfaceInput) MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface
-                  else MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420SemiPlanar)
-              fallbackFormat.setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
-              fallbackFormat.setInteger(MediaFormat.KEY_FRAME_RATE, fps)
-              fallbackFormat.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2)
-              
-              android.util.Log.i("VideoEncoder", "Retrying with system default encoder and basic format: $fallbackFormat")
-              configureAndStart(fallbackFormat)
-          } catch (e3: Exception) {
-              android.util.Log.e("VideoEncoder", "All fallback attempts failed", e3)
-              throw e3
+              // Re-create codec instance as it might be in a bad state after configure failure
+              releaseResources()
+              Thread.sleep(encoderRestartDelayMs)
+              codec = MediaCodec.createByCodecName(selectedEncoder!!.name)
+
+              configureAndStart(format)
+          } catch (e2: Exception) {
+              android.util.Log.e("VideoEncoder", "Second attempt failed, trying software encoder fallback", e2)
+
+              // Fallback 4: Try default encoder (system choice) which might be software
+              try {
+                  releaseResources()
+                  Thread.sleep(encoderRestartDelayMs)
+                  codec = MediaCodec.createEncoderByType(mimeType)
+                  // Reset format to basic
+                  val fallbackFormat = MediaFormat.createVideoFormat(mimeType, alignWidth, alignHeight)
+                  fallbackFormat.setInteger(MediaFormat.KEY_COLOR_FORMAT,
+                      if (useSurfaceInput) MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface
+                      else MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420SemiPlanar)
+                  fallbackFormat.setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
+                  fallbackFormat.setInteger(MediaFormat.KEY_FRAME_RATE, fps)
+                  fallbackFormat.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2)
+
+                  android.util.Log.i("VideoEncoder", "Retrying with system default encoder and basic format: $fallbackFormat")
+                  configureAndStart(fallbackFormat)
+              } catch (e3: Exception) {
+                  android.util.Log.e("VideoEncoder", "All fallback attempts failed", e3)
+                  throw e3
+              }
           }
       }
-    }
   }
 
   private fun configureAndStart(format: MediaFormat) {
-      codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+      try {
+          codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+      } catch (e: Exception) {
+          android.util.Log.e("VideoEncoder", "Codec configure failed: ${e.message}", e)
+          throw e
+      }
       if (useSurfaceInput) {
         inputSurface = codec.createInputSurface()
         android.util.Log.i("VideoEncoder", "Created input surface: $inputSurface")
       }
-      codec.start()
-      android.util.Log.i("VideoEncoder", "Codec started successfully")
+      try {
+          codec.start()
+          android.util.Log.i("VideoEncoder", "Codec started successfully")
+      } catch (e: Exception) {
+          android.util.Log.e("VideoEncoder", "Codec start failed after configure, attempting to release and retry", e)
+          try {
+              releaseResources()
+          } catch (_: Exception) {}
+          throw e
+      }
+  }
+
+  /**
+   * 释放所有编码器资源（增强版，确保完整清理）
+   */
+  private fun releaseResources() {
+      android.util.Log.i("VideoEncoder", "Releasing encoder resources")
+      try {
+          if (::codec.isInitialized) {
+              codec.stop()
+          }
+      } catch (e: Exception) {
+          android.util.Log.w("VideoEncoder", "Error stopping codec", e)
+      }
+      try {
+          if (::codec.isInitialized) {
+              codec.release()
+          }
+      } catch (e: Exception) {
+          android.util.Log.w("VideoEncoder", "Error releasing codec", e)
+      }
+      try {
+          inputSurface?.release()
+      } catch (e: Exception) {
+          android.util.Log.w("VideoEncoder", "Error releasing input surface", e)
+      }
+      inputSurface = null
+      android.util.Log.i("VideoEncoder", "Encoder resources released")
   }
   
   private fun trySetHardwareSpecificOptions() {
@@ -258,9 +311,12 @@ class VideoEncoder(
   fun stop() {
     android.util.Log.i("VideoEncoder", "Stopping video encoder")
     isStarted = false
-    try { codec.stop() } catch (_: Exception) {}
-    try { codec.release() } catch (_: Exception) {}
-    android.util.Log.i("VideoEncoder", "Video encoder stopped")
+    lastStopTime = System.currentTimeMillis()
+    releaseResources()
+    sps = null
+    pps = null
+    vps = null
+    android.util.Log.i("VideoEncoder", "Video encoder stopped at $lastStopTime")
   }
 
   fun getInputSurface(): Surface? = inputSurface

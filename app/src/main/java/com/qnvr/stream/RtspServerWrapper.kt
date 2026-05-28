@@ -608,14 +608,18 @@ class RtspServerWrapper(
   fun updateEncoder(w: Int, h: Int, f: Int, b: Int, encName: String? = null, mime: String = MediaFormat.MIMETYPE_VIDEO_AVC) {
     width = w; height = h; fps = f; bitrate = b
     try { encoder.stop() } catch (_: Exception) {}
-    
+
+    // 等待编码器资源完全释放后再创建新的编码器
+    android.util.Log.i("RtspServerWrapper", "Waiting for encoder resources to be released before recreating")
+    Thread.sleep(300)
+
     // Update camera FPS to match requested FPS
     camera.setFps(fps)
-    
+
     val useSurface = !camera.isRtspWatermarkEnabled()
     encoder = com.qnvr.stream.VideoEncoder(width, height, fps, bitrate, encName, mime, useSurface)
     encoder.start()
-    
+
     if (useSurface) {
         val surface = encoder.getInputSurface()
         if (surface != null) {
@@ -626,7 +630,7 @@ class RtspServerWrapper(
     } else {
         camera.setRtspEncoder(encoder)
     }
-    
+
     Thread.sleep(100)
     val actualEncoderName = encoder.getSelectedEncoderName() ?: encName ?: "未知"
     camera.getStatsMonitor()?.setEncoderInfo(actualEncoderName, mime, width, height, bitrate)
