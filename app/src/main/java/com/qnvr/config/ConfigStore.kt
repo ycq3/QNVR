@@ -65,4 +65,44 @@ class ConfigStore(ctx: Context) {
       else -> 4_000_000  // H.264和其他格式
     }
   }
+
+  // I帧间隔（秒），默认1
+  fun getIFrameInterval(): Int = sp.getInt("iFrameInterval", 1)
+  fun setIFrameInterval(v: Int) { sp.edit().putInt("iFrameInterval", v.coerceAtLeast(1)).apply() }
+
+  // 码率模式，默认 "cq"（尝试恒定质量，如果设备支持）
+  fun getBitrateMode(): String = sp.getString("bitrateMode", "cq") ?: "cq"
+  fun setBitrateMode(v: String) { sp.edit().putString("bitrateMode", v).apply() }
+
+  // 降噪等级：off, fast, high_quality，默认 high_quality
+  fun getNoiseReduction(): String = sp.getString("noiseReduction", "high_quality") ?: "high_quality"
+  fun setNoiseReduction(v: String) { sp.edit().putString("noiseReduction", v).apply() }
+
+  // 视频防抖开关，默认 true
+  fun isVideoStabilization(): Boolean = sp.getBoolean("videoStabilization", true)
+  fun setVideoStabilization(v: Boolean) { sp.edit().putBoolean("videoStabilization", v).apply() }
+
+  // 边缘增强开关，默认 true
+  fun isEdgeEnhancement(): Boolean = sp.getBoolean("edgeEnhancement", true)
+  fun setEdgeEnhancement(v: Boolean) { sp.edit().putBoolean("edgeEnhancement", v).apply() }
+
+  // 曝光补偿（-2 到 +2，步长0.5），默认 0
+  fun getExposureCompensation(): Float = sp.getFloat("exposureCompensation", 0f)
+  fun setExposureCompensation(v: Float) { sp.edit().putFloat("exposureCompensation", v.coerceIn(-2f, 2f)).apply() }
+
+  // 水印位置：top 或 bottom，默认 bottom
+  fun getWatermarkPosition(): String = sp.getString("watermarkPosition", "bottom") ?: "bottom"
+  fun setWatermarkPosition(v: String) { sp.edit().putString("watermarkPosition", v).apply() }
+
+  // 水印透明度（0-255），默认 180
+  fun getWatermarkOpacity(): Int = sp.getInt("watermarkOpacity", 180)
+  fun setWatermarkOpacity(v: Int) { sp.edit().putInt("watermarkOpacity", v.coerceIn(0, 255)).apply() }
+
+  // 低功耗模式（无客户端时自动降帧率），默认 true
+  fun isLowPowerMode(): Boolean = sp.getBoolean("lowPowerMode", true)
+  fun setLowPowerMode(v: Boolean) { sp.edit().putBoolean("lowPowerMode", v).apply() }
+
+  // 音频采样率：8000, 11025, 16000, 22050, 44100, 48000，默认 44100
+  fun getSampleRate(): Int = sp.getInt("sampleRate", 44100)
+  fun setSampleRate(v: Int) { sp.edit().putInt("sampleRate", v).apply() }
 }

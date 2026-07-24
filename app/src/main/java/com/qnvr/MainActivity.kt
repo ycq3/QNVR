@@ -1,16 +1,21 @@
 package com.qnvr
 
 import android.Manifest
+import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
+import android.provider.Settings
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.ActivityCompat
@@ -32,6 +37,7 @@ class MainActivity : ComponentActivity() {
       startService()
     } else {
       Sentry.captureMessage("Permissions not granted; service not started")
+      showPermissionExplanationDialog()
     }
   }
 
@@ -45,7 +51,8 @@ class MainActivity : ComponentActivity() {
   private lateinit var tvBatteryLevel: TextView
   private lateinit var cbAutoStart: CheckBox
   private lateinit var cbBootStart: CheckBox
-  
+  private lateinit var btnAbout: Button
+
   private val configChangeListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
     displayIpAddressAndPort(statusText)
   }
@@ -76,9 +83,14 @@ class MainActivity : ComponentActivity() {
     tvBatteryLevel = findViewById<TextView>(R.id.tvBatteryLevel)
     cbAutoStart = findViewById<CheckBox>(R.id.cbAutoStart)
     cbBootStart = findViewById<CheckBox>(R.id.cbBootStart)
+    btnAbout = findViewById<Button>(R.id.btnAbout)
 
     val sp = getSharedPreferences("qnvr", Context.MODE_PRIVATE)
     sp.registerOnSharedPreferenceChangeListener(configChangeListener)
+
+    if (!sp.getBoolean("privacy_accepted", false)) {
+      showPrivacyDialog(sp)
+    }
 
     cbAutoStart.isChecked = SettingsManager.isAutoStartEnabled(this)
     cbBootStart.isChecked = SettingsManager.isBootStartEnabled(this)
@@ -94,8 +106,42 @@ class MainActivity : ComponentActivity() {
 
     start.setOnClickListener { ensurePermissionsAndStart() }
     stop.setOnClickListener { stopService() }
-    
+    btnAbout.setOnClickListener {
+      startActivity(Intent(this, AboutActivity::class.java))
+    }
+
     handler.post(updateStatsRunnable)
+    maybeAskForReview(sp)
+  }
+
+  private fun maybeAskForReview(sp: android.content.SharedPreferences) {
+    val firstLaunch = sp.getLong("first_launch_time", 0L)
+    val now = System.currentTimeMillis()
+    if (firstLaunch == 0L) {
+      sp.edit().putLong("first_launch_time", now).apply()
+      return
+    }
+    val daysSinceFirstLaunch = (now - firstLaunch) / (1000 * 60 * 60 * 24)
+    if (daysSinceFirstLaunch >= 3 && !sp.getBoolean("review_dismissed", false)) {
+      AlertDialog.Builder(this)
+        .setTitle("喜欢 AI看家 吗？")
+        .setMessage("如果您觉得这款应用对您有帮助，请在应用商店给我们评分，这将激励我们持续改进！")
+        .setPositiveButton("去评分") { _, _ ->
+          sp.edit().putBoolean("review_dismissed", true).apply()
+          try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$packageName")))
+          } catch (_: Exception) {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$packageName")))
+          }
+        }
+        .setNegativeButton("暂不") { _, _ ->
+          sp.edit().putBoolean("review_dismissed", true).apply()
+        }
+        .setNeutralButton("稍后再说") { _, _ ->
+          sp.edit().putLong("first_launch_time", now - (1000 * 60 * 60 * 24 * 2)).apply()
+        }
+        .show()
+    }
   }
 
   override fun onResume() {
@@ -157,7 +203,8 @@ class MainActivity : ComponentActivity() {
           } else {
             "rtsp://$ipAddress:$port/live"
           }
-          textView.text = "RTSP地址: $rtspUrl\nWeb界面: http://$ipAddress:$webPort/"
+          val versionInfo = "版本: ${BuildConfig.VERSION_NAME}"
+          textView.text = "RTSP地址: $rtspUrl\nWeb界面: http://$ipAddress:$webPort/\n$versionInfo"
         }
       } catch (e: Exception) {
         runOnUiThread {
@@ -225,5 +272,53 @@ class MainActivity : ComponentActivity() {
     RecorderService.stopManually()
     val intent = Intent(this, RecorderService::class.java)
     stopService(intent)
+  }
+
+  private fun showPrivacyDialog(sp: android.content.SharedPreferences) {
+    AlertDialog.Builder(this)
+      .setTitle("欢迎使用 AI看家")
+      .setMessage("本应用需要将您的设备作为网络摄像头使用，因此需要以下权限：\n\n• 相机权限：用于采集视频画面\n• 录音权限：用于采集音频（可选）\n• 网络权限：用于传输视频流\n• 后台运行权限：用于保持服务持续运行\n\n您的视频数据仅在本地网络传输，我们不会收集、存储或上传您的任何视频内容到外部服务器。\n\n请阅读并同意《隐私政策》和《用户协议》后继续使用。")
+      .setCancelable(false)
+      .setPositiveButton("同意并继续") { _, _ ->
+        sp.edit().putBoolean("privacy_accepted", true).apply()
+        requestBatteryOptimizationWhitelist()
+        ensurePermissionsAndStart()
+      }
+      .setNegativeButton("退出") { _, _ ->
+        finish()
+      }
+      .setNeutralButton("查看隐私政策") { _, _ ->
+        try {
+          val intent = Intent(this, Class.forName("com.qnvr.PrivacyPolicyActivity"))
+          startActivity(intent)
+        } catch (e: Exception) {
+          Toast.makeText(this, "隐私政策页面即将上线", Toast.LENGTH_SHORT).show()
+        }
+      }
+      .show()
+  }
+
+  private fun requestBatteryOptimizationWhitelist() {
+    val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+    if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
+      val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+        data = Uri.parse("package:$packageName")
+      }
+      startActivity(intent)
+    }
+  }
+
+  private fun showPermissionExplanationDialog() {
+    AlertDialog.Builder(this)
+      .setTitle("权限说明")
+      .setMessage("本应用需要相机、录音、网络和后台运行权限才能将您的设备作为网络摄像头使用。请在设置中开启相应权限。")
+      .setPositiveButton("去设置") { _, _ ->
+        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+          data = Uri.parse("package:$packageName")
+        }
+        startActivity(intent)
+      }
+      .setNegativeButton("取消", null)
+      .show()
   }
 }

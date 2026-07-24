@@ -1,17 +1,21 @@
 package com.qnvr.web
 
 import android.content.Context
+import android.content.Intent
 import com.qnvr.camera.CameraController
 import com.qnvr.preview.MjpegStreamer
 import com.qnvr.config.ConfigStore
 import com.qnvr.config.ConfigApplier
+import com.qnvr.receiver.ServiceRestartReceiver
 import com.qnvr.service.RecorderService
+import com.qnvr.util.SettingsManager
 import fi.iki.elonen.NanoHTTPD
 import fi.iki.elonen.NanoHTTPD.Response.Status
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.HashMap
 
-class HttpServer(ctx: Context, private val camera: CameraController, private val mjpeg: MjpegStreamer, private val cfg: ConfigStore, private val applier: ConfigApplier) : NanoHTTPD(8080) {
+class HttpServer(private val ctx: Context, private val camera: CameraController, private val mjpeg: MjpegStreamer, private val cfg: ConfigStore, private val applier: ConfigApplier) : NanoHTTPD(8080) {
   private val assets = ctx.assets
   fun begin() { super.start(5000) }
   fun shutdown() { super.stop() }
@@ -25,6 +29,8 @@ class HttpServer(ctx: Context, private val camera: CameraController, private val
     if (uri == "/api/config" && session.method == Method.GET) return getConfig(session)
     if (uri == "/api/config" && session.method == Method.POST) return handleConfig(session)
     if (uri == "/api/encoders" && session.method == Method.GET) return getEncoders(session)  // 新增：获取编码器列表
+    if (uri == "/api/logs" && session.method == Method.GET) return serveLogs(session)
+    if (uri == "/api/restart" && session.method == Method.POST) return serveRestart(session)
     return newFixedLengthResponse(Status.NOT_FOUND, "text/plain", "404")
   }
   
@@ -48,6 +54,9 @@ class HttpServer(ctx: Context, private val camera: CameraController, private val
         json.put("cpuTemp", stats.cpuTemp)
         json.put("batteryTemp", stats.batteryTemp)
         json.put("batteryLevel", stats.batteryLevel)
+        json.put("lowPowerMode", cfg.isLowPowerMode())
+        json.put("watermarkPosition", cfg.getWatermarkPosition())
+        json.put("watermarkOpacity", cfg.getWatermarkOpacity())
       }
     } catch (e: Exception) {
       android.util.Log.e("HttpServer", "Error getting stats", e)
@@ -152,6 +161,24 @@ class HttpServer(ctx: Context, private val camera: CameraController, private val
     if (json.has("audioEnabled")) {
       cfg.setAudioEnabled(json.getBoolean("audioEnabled"))
     }
+    if (json.has("iFrameInterval")) { cfg.setIFrameInterval(json.getInt("iFrameInterval")); android.util.Log.d("HttpServer", "iFrameInterval changed") }
+    if (json.has("bitrateMode")) { cfg.setBitrateMode(json.getString("bitrateMode")); android.util.Log.d("HttpServer", "bitrateMode changed") }
+    if (json.has("noiseReduction")) { cfg.setNoiseReduction(json.getString("noiseReduction")); android.util.Log.d("HttpServer", "noiseReduction changed") }
+    if (json.has("videoStabilization")) { cfg.setVideoStabilization(json.getBoolean("videoStabilization")); android.util.Log.d("HttpServer", "videoStabilization changed") }
+    if (json.has("edgeEnhancement")) { cfg.setEdgeEnhancement(json.getBoolean("edgeEnhancement")); android.util.Log.d("HttpServer", "edgeEnhancement changed") }
+    if (json.has("exposureCompensation")) { cfg.setExposureCompensation(json.getDouble("exposureCompensation").toFloat()); android.util.Log.d("HttpServer", "exposureCompensation changed") }
+    if (json.has("watermarkPosition")) { cfg.setWatermarkPosition(json.getString("watermarkPosition")); android.util.Log.d("HttpServer", "watermarkPosition changed") }
+    if (json.has("watermarkOpacity")) { cfg.setWatermarkOpacity(json.getInt("watermarkOpacity")); android.util.Log.d("HttpServer", "watermarkOpacity changed") }
+    if (json.has("watermarkAlpha")) {
+      val alphaFloat = json.getDouble("watermarkAlpha").toFloat()
+      val opacityInt = (alphaFloat * 255).toInt().coerceIn(0, 255)
+      cfg.setWatermarkOpacity(opacityInt)
+      android.util.Log.d("HttpServer", "watermarkAlpha converted to opacity: $opacityInt")
+    }
+    if (json.has("lowPowerMode")) { cfg.setLowPowerMode(json.getBoolean("lowPowerMode")); android.util.Log.d("HttpServer", "lowPowerMode changed") }
+    if (json.has("sampleRate")) { cfg.setSampleRate(json.getInt("sampleRate")); android.util.Log.d("HttpServer", "sampleRate changed") }
+    if (json.has("autoStart")) { SettingsManager.setAutoStartEnabled(ctx, json.getBoolean("autoStart")); android.util.Log.d("HttpServer", "autoStart changed") }
+    if (json.has("bootAutoStart")) { SettingsManager.setBootStartEnabled(ctx, json.getBoolean("bootAutoStart")); android.util.Log.d("HttpServer", "bootAutoStart changed") }
     return newFixedLengthResponse(Status.OK, "application/json", "{}")
   }
 
@@ -176,6 +203,18 @@ class HttpServer(ctx: Context, private val camera: CameraController, private val
     json.put("pushUseRemoteConfig", cfg.isPushUseRemoteConfig())
     json.put("pushConfigUrl", cfg.getPushConfigUrl())
     json.put("audioEnabled", cfg.isAudioEnabled())
+    json.put("iFrameInterval", cfg.getIFrameInterval())
+    json.put("bitrateMode", cfg.getBitrateMode())
+    json.put("noiseReduction", cfg.getNoiseReduction())
+    json.put("videoStabilization", cfg.isVideoStabilization())
+    json.put("edgeEnhancement", cfg.isEdgeEnhancement())
+    json.put("exposureCompensation", cfg.getExposureCompensation().toDouble())
+    json.put("watermarkPosition", cfg.getWatermarkPosition())
+    json.put("watermarkOpacity", cfg.getWatermarkOpacity())
+    json.put("lowPowerMode", cfg.isLowPowerMode())
+    json.put("sampleRate", cfg.getSampleRate())
+    json.put("autoStart", SettingsManager.isAutoStartEnabled(ctx))
+    json.put("bootAutoStart", SettingsManager.isBootStartEnabled(ctx))
 
     // 对用户名和密码进行URL编码以避免特殊字符问题
     val encodedUsername = java.net.URLEncoder.encode(cfg.getUsername(), "UTF-8")
@@ -200,5 +239,40 @@ class HttpServer(ctx: Context, private val camera: CameraController, private val
     }
     
     return newFixedLengthResponse(Status.OK, "application/json", jsonArray.toString())
+  }
+
+  private fun serveLogs(@Suppress("UNUSED_PARAMETER") session: IHTTPSession): Response {
+    val json = JSONObject()
+    val logsArray = JSONArray()
+    try {
+      val process = Runtime.getRuntime().exec("logcat -d -t 200")
+      val reader = java.io.BufferedReader(java.io.InputStreamReader(process.inputStream))
+      val keywords = listOf("QNVR", "CameraController", "VideoEncoder", "RtspServer", "HttpServer")
+      reader.useLines { lines ->
+        lines.forEach { line ->
+          if (keywords.any { line.contains(it) }) {
+            logsArray.put(line)
+          }
+        }
+      }
+      process.waitFor()
+      json.put("logs", logsArray)
+    } catch (e: Exception) {
+      android.util.Log.e("HttpServer", "Failed to read logcat", e)
+      json.put("logs", JSONArray())
+      json.put("error", e.message)
+    }
+    return newFixedLengthResponse(Status.OK, "application/json", json.toString())
+  }
+
+  private fun serveRestart(@Suppress("UNUSED_PARAMETER") session: IHTTPSession): Response {
+    val json = JSONObject()
+    json.put("status", "restarting")
+    Thread {
+      Thread.sleep(1000)
+      val intent = Intent(ServiceRestartReceiver.ACTION_RESTART_SERVICE)
+      ctx.sendBroadcast(intent)
+    }.start()
+    return newFixedLengthResponse(Status.OK, "application/json", json.toString())
   }
 }
