@@ -1,183 +1,1489 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="dark">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>QNVR 预览与配置</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>QNVR 监控配置中心</title>
   <style>
-    body { font-family: system-ui; padding: 12px; }
-    img { width: 100%; max-width: 640px; background: #000; }
-    .row { margin: 8px 0; }
-    label { display: inline-block; width: 100px; }
-    select { width: 200px; }
-    .stats-box {
-      background: #f5f5f5;
-      padding: 12px;
-      border-radius: 8px;
-      margin: 12px 0;
+    :root {
+      --bg-primary: #0b0f19;
+      --bg-secondary: rgba(17, 24, 39, 0.75);
+      --bg-card: rgba(17, 24, 39, 0.55);
+      --bg-input: rgba(17, 24, 39, 0.6);
+      --text-primary: #f8fafc;
+      --text-secondary: #94a3b8;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --accent-glow: rgba(59, 130, 246, 0.35);
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --info: #06b6d4;
+      --border: rgba(148, 163, 184, 0.12);
+      --shadow: 0 8px 32px rgba(0,0,0,0.45);
+      --glass: blur(20px) saturate(160%);
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --radius-xl: 20px;
     }
-    .stat-item {
-      display: inline-block;
-      margin: 4px 12px 4px 0;
+    [data-theme="light"] {
+      --bg-primary: #f1f5f9;
+      --bg-secondary: rgba(255,255,255,0.85);
+      --bg-card: rgba(255,255,255,0.7);
+      --bg-input: rgba(255,255,255,0.8);
+      --text-primary: #0f172a;
+      --text-secondary: #475569;
+      --border: rgba(148, 163, 184, 0.25);
+      --shadow: 0 8px 32px rgba(0,0,0,0.12);
+      --accent-glow: rgba(59, 130, 246, 0.2);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { -webkit-tap-highlight-color: transparent; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans SC", sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      line-height: 1.5;
+      min-height: 100vh;
+      transition: background 0.3s, color 0.3s;
+    }
+
+    /* Background gradient orbs */
+    body::before {
+      content: "";
+      position: fixed;
+      top: -20%; right: -10%;
+      width: 600px; height: 600px;
+      background: radial-gradient(circle, rgba(59,130,246,0.18), transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+    body::after {
+      content: "";
+      position: fixed;
+      bottom: -10%; left: -5%;
+      width: 500px; height: 500px;
+      background: radial-gradient(circle, rgba(6,182,212,0.12), transparent 70%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .container {
+      position: relative;
+      z-index: 1;
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+
+    /* Header */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 20px;
+      padding: 16px 20px;
+      background: var(--bg-secondary);
+      backdrop-filter: var(--glass);
+      -webkit-backdrop-filter: var(--glass);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow);
+    }
+    .header-left { display: flex; align-items: center; gap: 12px; }
+    .logo {
+      width: 40px; height: 40px;
+      border-radius: var(--radius-md);
+      background: linear-gradient(135deg, var(--accent), #06b6d4);
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; color: #fff; font-size: 18px;
+      box-shadow: 0 4px 12px var(--accent-glow);
+    }
+    .header-title h1 { font-size: 18px; font-weight: 600; letter-spacing: 0.3px; }
+    .header-title p { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+    .header-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      padding: 8px 14px;
+      border: none; border-radius: var(--radius-md);
+      font-size: 13px; font-weight: 500; cursor: pointer;
+      transition: all 0.2s;
+      color: #fff;
+      background: linear-gradient(135deg, var(--accent), #2563eb);
+      box-shadow: 0 4px 12px rgba(37,99,235,0.25);
+    }
+    .btn:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(37,99,235,0.35); }
+    .btn:active { transform: translateY(0); }
+    .btn.secondary {
+      background: var(--bg-input);
+      color: var(--text-primary);
+      border: 1px solid var(--border);
+      box-shadow: none;
+    }
+    .btn.secondary:hover { background: rgba(148,163,184,0.15); }
+    .btn.success { background: linear-gradient(135deg, var(--success), #16a34a); box-shadow: 0 4px 12px rgba(34,197,94,0.25); }
+    .btn.success:hover { box-shadow: 0 6px 16px rgba(34,197,94,0.35); }
+    .btn.warning { background: linear-gradient(135deg, var(--warning), #d97706); box-shadow: 0 4px 12px rgba(245,158,11,0.25); }
+    .btn.danger { background: linear-gradient(135deg, var(--danger), #dc2626); box-shadow: 0 4px 12px rgba(239,68,68,0.25); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none !important; }
+    .btn-sm { padding: 6px 10px; font-size: 12px; }
+    .btn-icon { width: 36px; height: 36px; padding: 0; border-radius: var(--radius-md); }
+
+    /* Modified badge */
+    .modified-badge {
+      display: none;
+      align-items: center; gap: 4px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 12px; font-weight: 500;
+      background: rgba(245,158,11,0.15);
+      color: var(--warning);
+      border: 1px solid rgba(245,158,11,0.25);
+      animation: pulseBadge 2s infinite;
+    }
+    .modified-badge.show { display: inline-flex; }
+    @keyframes pulseBadge {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+
+    /* Theme toggle */
+    .theme-toggle {
+      width: 44px; height: 24px;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      position: relative;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+    .theme-toggle::after {
+      content: "";
+      position: absolute;
+      top: 2px; left: 2px;
+      width: 18px; height: 18px;
+      border-radius: 50%;
+      background: var(--text-primary);
+      transition: transform 0.3s;
+    }
+    [data-theme="light"] .theme-toggle::after { transform: translateX(20px); background: var(--warning); }
+
+    /* Preview */
+    .preview-section {
+      margin-bottom: 20px;
+    }
+    .preview-card {
+      background: var(--bg-secondary);
+      backdrop-filter: var(--glass);
+      -webkit-backdrop-filter: var(--glass);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .preview-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .preview-header h2 { font-size: 15px; font-weight: 600; }
+    .preview-status {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 12px; color: var(--text-secondary);
+    }
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--success);
+      box-shadow: 0 0 8px var(--success);
+      animation: blink 2s infinite;
+    }
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+    .preview-wrap {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: #000;
+      overflow: hidden;
+    }
+    .preview-wrap img {
+      width: 100%; height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .preview-overlay {
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      padding: 16px;
+      background: linear-gradient(to top, rgba(0,0,0,0.7), transparent);
+      display: flex; flex-wrap: wrap; gap: 8px;
+    }
+    .addr-chip {
+      display: inline-flex; align-items: center; gap: 6px;
       padding: 6px 12px;
-      background: white;
-      border-radius: 4px;
+      background: rgba(255,255,255,0.12);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 20px;
+      font-size: 12px;
+      color: #e2e8f0;
+      max-width: 100%;
+    }
+    .addr-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .addr-chip button {
+      background: rgba(255,255,255,0.15);
+      border: none; border-radius: 4px;
+      color: #fff; font-size: 11px;
+      padding: 2px 6px; cursor: pointer;
+    }
+    .addr-chip button:hover { background: rgba(255,255,255,0.25); }
+
+    /* Stats */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .stat-card {
+      background: var(--bg-secondary);
+      backdrop-filter: var(--glass);
+      -webkit-backdrop-filter: var(--glass);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 14px;
+      box-shadow: var(--shadow);
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .stat-card:hover { transform: translateY(-2px); }
+    .stat-card .stat-label {
+      font-size: 11px; color: var(--text-secondary);
+      text-transform: uppercase; letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+    .stat-card .stat-value {
+      font-size: 20px; font-weight: 700;
+      background: linear-gradient(135deg, var(--text-primary), var(--text-secondary));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    .stat-card .stat-sub {
+      font-size: 11px; color: var(--text-secondary); margin-top: 4px;
+    }
+    .stat-card.danger { border-left: 3px solid var(--danger); }
+    .stat-card.warning { border-left: 3px solid var(--warning); }
+    .stat-card.success { border-left: 3px solid var(--success); }
+
+    /* Network quality indicator */
+    .net-quality {
+      display: flex; align-items: center; gap: 6px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 12px; font-weight: 500;
+      background: rgba(34,197,94,0.12);
+      color: var(--success);
+      border: 1px solid rgba(34,197,94,0.2);
+    }
+    .net-quality.poor { background: rgba(239,68,68,0.12); color: var(--danger); border-color: rgba(239,68,68,0.2); }
+    .net-quality.fair { background: rgba(245,158,11,0.12); color: var(--warning); border-color: rgba(245,158,11,0.2); }
+    .net-bars {
+      display: flex; align-items: flex-end; gap: 2px;
+      height: 12px;
+    }
+    .net-bar {
+      width: 3px;
+      background: currentColor;
+      border-radius: 1px;
+      opacity: 0.3;
+    }
+    .net-bar:nth-child(1) { height: 4px; }
+    .net-bar:nth-child(2) { height: 7px; }
+    .net-bar:nth-child(3) { height: 10px; }
+    .net-bar:nth-child(4) { height: 12px; }
+    .net-bar.active { opacity: 1; }
+
+    /* Section layout */
+    .sections-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    @media (max-width: 480px) {
+      .sections-grid { grid-template-columns: 1fr; }
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    .section-card {
+      background: var(--bg-secondary);
+      backdrop-filter: var(--glass);
+      -webkit-backdrop-filter: var(--glass);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .section-header {
+      display: flex; align-items: center; gap: 8px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(90deg, rgba(59,130,246,0.08), transparent);
+    }
+    .section-header .section-icon {
+      width: 28px; height: 28px;
+      border-radius: var(--radius-sm);
+      display: flex; align-items: center; justify-content: center;
       font-size: 14px;
+      background: rgba(59,130,246,0.12);
     }
+    .section-header h3 { font-size: 14px; font-weight: 600; }
+    .section-body { padding: 14px 16px; }
+
+    /* Form elements */
+    .form-row {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .form-row:last-child { margin-bottom: 0; }
+    .form-row label {
+      font-size: 13px; color: var(--text-secondary);
+      flex-shrink: 0;
+      min-width: 80px;
+    }
+    .form-row .input-wrap {
+      display: flex; align-items: center; gap: 8px;
+      flex: 1; min-width: 0;
+    }
+    input[type="text"], input[type="number"], input[type="password"], select {
+      width: 100%;
+      padding: 7px 10px;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      color: var(--text-primary);
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    input:focus, select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+    input[type="range"] {
+      flex: 1;
+      -webkit-appearance: none;
+      appearance: none;
+      height: 5px;
+      background: rgba(148,163,184,0.25);
+      border-radius: 3px;
+      outline: none;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 16px; height: 16px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent), #06b6d4);
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(59,130,246,0.4);
+      border: 2px solid #fff;
+    }
+    .range-value {
+      min-width: 36px;
+      text-align: right;
+      font-size: 13px; font-weight: 600;
+      color: var(--accent);
+    }
+
+    /* Toggle switch */
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 44px; height: 24px;
+    }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .switch-slider {
+      position: absolute;
+      cursor: pointer;
+      inset: 0;
+      background: rgba(148,163,184,0.25);
+      border-radius: 24px;
+      transition: 0.3s;
+    }
+    .switch-slider::before {
+      content: "";
+      position: absolute;
+      height: 18px; width: 18px;
+      left: 3px; bottom: 3px;
+      background: #fff;
+      border-radius: 50%;
+      transition: 0.3s;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+    .switch input:checked + .switch-slider { background: linear-gradient(135deg, var(--accent), #06b6d4); }
+    .switch input:checked + .switch-slider::before { transform: translateX(20px); }
+
+    /* Action bar */
+    .action-bar {
+      display: flex; flex-wrap: wrap; gap: 10px;
+      align-items: center; justify-content: space-between;
+      margin-bottom: 20px;
+      padding: 14px 16px;
+      background: var(--bg-secondary);
+      backdrop-filter: var(--glass);
+      -webkit-backdrop-filter: var(--glass);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow);
+    }
+    .action-left, .action-right { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+
+    /* Logs */
+    .logs-card {
+      background: var(--bg-secondary);
+      backdrop-filter: var(--glass);
+      -webkit-backdrop-filter: var(--glass);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      margin-bottom: 20px;
+    }
+    .logs-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      user-select: none;
+    }
+    .logs-header h3 { font-size: 14px; font-weight: 600; }
+    .logs-content {
+      display: none;
+      padding: 12px 16px;
+    }
+    .logs-content.open { display: block; }
+    .logs-area {
+      width: 100%; height: 240px;
+      background: rgba(0,0,0,0.4);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 10px;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 12px;
+      line-height: 1.6;
+      color: #cbd5e1;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    [data-theme="light"] .logs-area {
+      background: rgba(255,255,255,0.7);
+      color: #334155;
+    }
+    .log-entry { margin-bottom: 2px; }
+    .log-time { color: var(--text-secondary); margin-right: 6px; }
+    .log-info { color: var(--info); }
+    .log-warn { color: var(--warning); }
+    .log-err { color: var(--danger); }
+
+    /* Toast */
+    .toast-container {
+      position: fixed;
+      top: 16px; right: 16px;
+      z-index: 1000;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .toast {
+      padding: 12px 16px;
+      border-radius: var(--radius-md);
+      font-size: 13px; font-weight: 500;
+      color: #fff;
+      background: var(--bg-secondary);
+      backdrop-filter: var(--glass);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+      animation: toastIn 0.3s ease;
+      max-width: 320px;
+    }
+    @keyframes toastIn {
+      from { opacity: 0; transform: translateX(20px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+    .toast.success { border-left: 4px solid var(--success); }
+    .toast.error { border-left: 4px solid var(--danger); }
+    .toast.info { border-left: 4px solid var(--info); }
+
+    /* Loading overlay */
+    .loading-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.5);
+      backdrop-filter: blur(4px);
+      display: none; align-items: center; justify-content: center;
+      z-index: 999;
+    }
+    .loading-overlay.show { display: flex; }
+    .spinner {
+      width: 40px; height: 40px;
+      border: 3px solid rgba(255,255,255,0.15);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Import file input hidden */
+    #importFile { display: none; }
+
+    /* Small helpers */
+    .text-muted { color: var(--text-secondary); font-size: 12px; }
+    .flex { display: flex; }
+    .items-center { align-items: center; }
+    .gap-2 { gap: 8px; }
+    .gap-1 { gap: 4px; }
+    .mt-1 { margin-top: 4px; }
+    .w-full { width: 100%; }
   </style>
-  <script>
-    let encoders = []; // 存储可用编码器列表
-    
-    // 页面加载时获取编码器列表
-    async function loadEncoders() {
-      try {
-        const response = await fetch('/api/encoders');
-        encoders = await response.json();
-        const encoderSelect = document.getElementById('encoderName');
-        encoderSelect.innerHTML = '<option value="">自动选择</option>';
-        
-        encoders.forEach(encoder => {
-          const option = document.createElement('option');
-          option.value = encoder.name;
-          option.textContent = encoder.displayName;
-          if (encoder.name === document.getElementById('encoderName').dataset.current) {
-            option.selected = true;
-          }
-          encoderSelect.appendChild(option);
-        });
-      } catch (e) {
-        console.error('Failed to load encoders:', e);
-      }
-    }
-    
-    async function refresh() {
-      const s = await fetch('/api/config').then(r=>r.json())
-      const rtsp = document.getElementById('rtsp')
-      rtsp.textContent = s.rtsp
-      rtsp.href = s.rtsp
-      const web = document.getElementById('web')
-      web.textContent = s.web
-      web.href = s.web
-      document.getElementById('deviceName').value = s.deviceName || ''
-      document.getElementById('showDeviceName').checked = !!s.showDeviceName
-      document.getElementById('username').value = s.username || 'admin'
-      document.getElementById('password').value = s.password || ''
-      document.getElementById('port').value = s.port || 18554  // 将默认端口从8554改为18554
-      document.getElementById('bitrate').value = s.bitrate || 4000000
-      document.getElementById('fps').value = s.fps || 30
-      // 设置编码器选项
-      document.getElementById('encoderName').dataset.current = s.encoderName || '';
-      document.getElementById('mimeType').value = s.mimeType || 'video/avc';
-      document.getElementById('pushEnabled').checked = !!s.pushEnabled
-      document.getElementById('pushUrl').value = s.pushUrl || ''
-      document.getElementById('pushUseRemoteConfig').checked = !!s.pushUseRemoteConfig
-      document.getElementById('pushConfigUrl').value = s.pushConfigUrl || ''
-      document.getElementById('audioEnabled').checked = s.audioEnabled !== false
-      
-      // 加载编码器列表
-      await loadEncoders();
-      
-      const res = `${s.width}x${s.height}`
-      document.getElementById('resolution').value = res
-    }
-    
-    async function refreshStats() {
-      try {
-        const stats = await fetch('/api/stats').then(r=>r.json())
-        document.getElementById('statFps').textContent = `帧数: ${stats.currentFps || 0} FPS`
-        document.getElementById('statCpu').textContent = `CPU: ${(stats.cpuUsage || 0).toFixed(1)}%`
-        document.getElementById('statNetwork').textContent = `网络: 上传 ${(stats.networkTxKbps || 0).toFixed(1)} Kbps / 下载 ${(stats.networkRxKbps || 0).toFixed(1)} Kbps`
-        document.getElementById('statCpuTemp').textContent = `CPU温度: ${(stats.cpuTemp || 0).toFixed(1)}°C`
-        document.getElementById('statBatteryTemp').textContent = `电池温度: ${(stats.batteryTemp || 0).toFixed(1)}°C`
-        document.getElementById('statBatteryLevel').textContent = `电池电量: ${stats.batteryLevel || 0}%`
-        if (stats.encoderName) {
-          document.getElementById('statEncoder').textContent = `编码器: ${stats.encoderName} (${stats.width}x${stats.height} @ ${Math.floor(stats.bitrate / 1000)} Kbps)`
-        } else {
-          document.getElementById('statEncoder').textContent = `编码器: 未启动`
-        }
-      } catch (e) {
-        console.error('Failed to refresh stats:', e)
-      }
-    }
-    
-    async function applyCfg() {
-      const torch = document.getElementById('torch').checked
-      const watermark = document.getElementById('watermark').checked
-      const zoom = parseFloat(document.getElementById('zoom').value)
-      const deviceName = document.getElementById('deviceName').value
-      const showDeviceName = document.getElementById('showDeviceName').checked
-      const username = document.getElementById('username').value
-      const password = document.getElementById('password').value
-      const port = parseInt(document.getElementById('port').value, 10)
-      const bitrate = parseInt(document.getElementById('bitrate').value, 10)
-      const fps = parseInt(document.getElementById('fps').value, 10)
-      const encoderName = document.getElementById('encoderName').value || null
-      const mimeType = document.getElementById('mimeType').value
-      const pushEnabled = document.getElementById('pushEnabled').checked
-      const pushUrl = document.getElementById('pushUrl').value
-      const pushUseRemoteConfig = document.getElementById('pushUseRemoteConfig').checked
-      const pushConfigUrl = document.getElementById('pushConfigUrl').value
-      const audioEnabled = document.getElementById('audioEnabled').checked
-      const [width, height] = document.getElementById('resolution').value.split('x').map(x=>parseInt(x,10))
-      await fetch('/api/config', {method:'POST', body: JSON.stringify({torch, watermark, zoom, deviceName, showDeviceName, username, password, port, bitrate, fps, encoderName, mimeType, width, height, pushEnabled, pushUrl, pushUseRemoteConfig, pushConfigUrl, audioEnabled})})
-      refresh()
-    }
-    
-    function startPreview() {
-      const img = document.getElementById('mjpeg')
-      img.src = '/stream.mjpg'
-    }
-    
-    window.onload = ()=>{ refresh(); startPreview(); setInterval(refreshStats, 1000); }
-  </script>
 </head>
 <body>
-  <h2>QNVR 预览</h2>
-  <img id="mjpeg" alt="预览" />
-  <div class="row">RTSP 地址：<a id="rtsp" href="#" target="_blank"></a></div>
-  <div class="row">Web 地址：<a id="web" href="#" target="_blank"></a></div>
-  
-  <div class="stats-box">
-    <h3 style="margin: 0 0 8px 0;">系统监控</h3>
-    <div class="stat-item" id="statFps">帧数: -- FPS</div>
-    <div class="stat-item" id="statCpu">CPU: --%</div>
-    <div class="stat-item" id="statNetwork">网络: 上传 -- Kbps / 下载 -- Kbps</div>
-    <div class="stat-item" id="statCpuTemp">CPU温度: --°C</div>
-    <div class="stat-item" id="statBatteryTemp">电池温度: --°C</div>
-    <div class="stat-item" id="statBatteryLevel">电池电量: --%</div>
-    <div class="stat-item" id="statEncoder">编码器: 未启动</div>
+  <div class="loading-overlay" id="loadingOverlay"><div class="spinner"></div></div>
+  <div class="toast-container" id="toastContainer"></div>
+
+  <div class="container">
+    <!-- Header -->
+    <div class="header">
+      <div class="header-left">
+        <div class="logo">Q</div>
+        <div class="header-title">
+          <h1>QNVR 监控配置中心</h1>
+          <p>实时预览与系统管理</p>
+        </div>
+      </div>
+      <div class="header-right">
+        <div class="net-quality" id="netQuality">
+          <div class="net-bars" id="netBars">
+            <div class="net-bar active"></div>
+            <div class="net-bar active"></div>
+            <div class="net-bar active"></div>
+            <div class="net-bar active"></div>
+          </div>
+          <span id="netQualityText">网络优良</span>
+        </div>
+        <div class="modified-badge" id="modifiedBadge">
+          <span>●</span> 配置已修改
+        </div>
+        <div class="theme-toggle" id="themeToggle" title="切换主题"></div>
+        <button class="btn success" id="btnApply" onclick="applyCfg()">
+          <span>✓</span> 应用配置
+        </button>
+      </div>
+    </div>
+
+    <!-- Preview -->
+    <div class="preview-section">
+      <div class="preview-card">
+        <div class="preview-header">
+          <h2>实时预览</h2>
+          <div class="preview-status">
+            <div class="status-dot"></div>
+            <span>直播中</span>
+          </div>
+        </div>
+        <div class="preview-wrap">
+          <img id="mjpeg" alt="实时预览" />
+          <div class="preview-overlay">
+            <div class="addr-chip">
+              <span>RTSP:</span>
+              <span id="rtspText">--</span>
+              <button onclick="copyText(document.getElementById('rtspText').textContent)">复制</button>
+            </div>
+            <div class="addr-chip">
+              <span>Web:</span>
+              <span id="webText">--</span>
+              <button onclick="copyText(document.getElementById('webText').textContent)">复制</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-grid" id="statsGrid">
+      <div class="stat-card" id="statFpsCard">
+        <div class="stat-label">实时帧率</div>
+        <div class="stat-value" id="statFps">--</div>
+        <div class="stat-sub">FPS</div>
+      </div>
+      <div class="stat-card" id="statCpuCard">
+        <div class="stat-label">CPU 占用</div>
+        <div class="stat-value" id="statCpu">--</div>
+        <div class="stat-sub">%</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">上传速率</div>
+        <div class="stat-value" id="statTx">--</div>
+        <div class="stat-sub">Kbps</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">下载速率</div>
+        <div class="stat-value" id="statRx">--</div>
+        <div class="stat-sub">Kbps</div>
+      </div>
+      <div class="stat-card" id="statCpuTempCard">
+        <div class="stat-label">CPU 温度</div>
+        <div class="stat-value" id="statCpuTemp">--</div>
+        <div class="stat-sub">°C</div>
+      </div>
+      <div class="stat-card" id="statBatteryTempCard">
+        <div class="stat-label">电池温度</div>
+        <div class="stat-value" id="statBatteryTemp">--</div>
+        <div class="stat-sub">°C</div>
+      </div>
+      <div class="stat-card" id="statBatteryLevelCard">
+        <div class="stat-label">电池电量</div>
+        <div class="stat-value" id="statBatteryLevel">--</div>
+        <div class="stat-sub">%</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">编码器信息</div>
+        <div class="stat-value" id="statEncoder" style="font-size:14px;">--</div>
+        <div class="stat-sub" id="statEncoderSub">--</div>
+      </div>
+    </div>
+
+    <!-- Config Sections -->
+    <div class="sections-grid">
+      <!-- Video -->
+      <div class="section-card">
+        <div class="section-header">
+          <div class="section-icon">🎥</div>
+          <h3>视频配置</h3>
+        </div>
+        <div class="section-body">
+          <div class="form-row">
+            <label>分辨率</label>
+            <div class="input-wrap">
+              <select id="resolution">
+                <option value="640x480">640 × 480 (VGA)</option>
+                <option value="1280x720">1280 × 720 (HD)</option>
+                <option value="1920x1080">1920 × 1080 (FHD)</option>
+                <option value="2560x1440">2560 × 1440 (2K)</option>
+                <option value="3840x2160">3840 × 2160 (4K)</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>帧率</label>
+            <div class="input-wrap">
+              <input type="range" id="fpsRange" min="1" max="60" step="1" value="30" oninput="document.getElementById('fpsNum').value=this.value">
+              <input type="number" id="fpsNum" min="1" max="60" value="30" style="width:56px;flex:0 0 auto;" oninput="document.getElementById('fpsRange').value=this.value">
+            </div>
+          </div>
+          <div class="form-row">
+            <label>码率</label>
+            <div class="input-wrap">
+              <input type="range" id="bitrateRange" min="256000" max="20000000" step="128000" value="4000000" oninput="syncBitrate(this.value)">
+              <span class="range-value" id="bitrateValue">4.0M</span>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>编码格式</label>
+            <div class="input-wrap">
+              <select id="mimeType">
+                <option value="video/avc">H.264 / AVC</option>
+                <option value="video/hevc">H.265 / HEVC</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>编码器</label>
+            <div class="input-wrap">
+              <select id="encoderName"><option value="">自动选择</option></select>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>I帧间隔</label>
+            <div class="input-wrap">
+              <input type="number" id="iFrameInterval" min="1" max="300" step="1" value="1">
+              <span class="text-muted">秒</span>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>码率模式</label>
+            <div class="input-wrap">
+              <select id="bitrateMode">
+                <option value="cq">CQ 恒定质量（推荐）</option>
+                <option value="VBR">VBR 可变码率</option>
+                <option value="CBR">CBR 固定码率</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Image Enhancement -->
+      <div class="section-card">
+        <div class="section-header">
+          <div class="section-icon">🎨</div>
+          <h3>图像增强</h3>
+        </div>
+        <div class="section-body">
+          <div class="form-row">
+            <label>降噪等级</label>
+            <div class="input-wrap">
+              <select id="noiseReduction">
+                <option value="off">关闭</option>
+                <option value="fast">低（快速）</option>
+                <option value="high_quality">高（高质量）</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>视频防抖</label>
+            <div class="input-wrap">
+              <label class="switch">
+                <input type="checkbox" id="videoStabilization">
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>边缘增强</label>
+            <div class="input-wrap">
+              <label class="switch">
+                <input type="checkbox" id="edgeEnhancement">
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>曝光补偿</label>
+            <div class="input-wrap">
+              <input type="range" id="exposureCompensation" min="-2" max="2" step="0.5" value="0" oninput="document.getElementById('exposureValue').textContent=(this.value>0?'+':'')+this.value">
+              <span class="range-value" id="exposureValue">0</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Watermark -->
+      <div class="section-card">
+        <div class="section-header">
+          <div class="section-icon">🏷️</div>
+          <h3>水印与覆盖</h3>
+        </div>
+        <div class="section-body">
+          <div class="form-row">
+            <label>时间水印</label>
+            <div class="input-wrap">
+              <label class="switch">
+                <input type="checkbox" id="watermark" checked>
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>设备名水印</label>
+            <div class="input-wrap">
+              <label class="switch">
+                <input type="checkbox" id="showDeviceName">
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>设备名称</label>
+            <div class="input-wrap">
+              <input type="text" id="deviceName" placeholder="例如：门口摄像头">
+            </div>
+          </div>
+          <div class="form-row">
+            <label>水印位置</label>
+            <div class="input-wrap">
+              <select id="watermarkPosition">
+                <option value="top">顶部</option>
+                <option value="bottom">底部</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>水印透明度</label>
+            <div class="input-wrap">
+              <input type="range" id="watermarkOpacity" min="0" max="255" step="1" value="180" oninput="document.getElementById('alphaValue').textContent=this.value">
+              <span class="range-value" id="alphaValue">180</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Network & Streaming -->
+      <div class="section-card">
+        <div class="section-header">
+          <div class="section-icon">🌐</div>
+          <h3>网络与推流</h3>
+        </div>
+        <div class="section-body">
+          <div class="form-row">
+            <label>RTSP 端口</label>
+            <div class="input-wrap">
+              <input type="number" id="port" min="1024" max="65535" value="18554">
+            </div>
+          </div>
+          <div class="form-row">
+            <label>用户名</label>
+            <div class="input-wrap">
+              <input type="text" id="username" value="admin">
+            </div>
+          </div>
+          <div class="form-row">
+            <label>密码</label>
+            <div class="input-wrap">
+              <input type="password" id="password" placeholder="留空表示不验证">
+            </div>
+          </div>
+          <div class="form-row">
+            <label>主动推流</label>
+            <div class="input-wrap">
+              <label class="switch">
+                <input type="checkbox" id="pushEnabled">
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>推流地址</label>
+            <div class="input-wrap">
+              <input type="text" id="pushUrl" placeholder="rtsp://user:pass@host:port/live">
+            </div>
+          </div>
+          <div class="form-row">
+            <label>远程配置</label>
+            <div class="input-wrap">
+              <label class="switch">
+                <input type="checkbox" id="pushUseRemoteConfig">
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>配置地址</label>
+            <div class="input-wrap">
+              <input type="text" id="pushConfigUrl" placeholder="https://example.com/push.json">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Audio -->
+      <div class="section-card">
+        <div class="section-header">
+          <div class="section-icon">🔊</div>
+          <h3>音频配置</h3>
+        </div>
+        <div class="section-body">
+          <div class="form-row">
+            <label>启用音频</label>
+            <div class="input-wrap">
+              <label class="switch">
+                <input type="checkbox" id="audioEnabled" checked>
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>采样率</label>
+            <div class="input-wrap">
+              <select id="sampleRate">
+                <option value="44100">44100 Hz</option>
+                <option value="48000">48000 Hz</option>
+                <option value="16000">16000 Hz</option>
+                <option value="8000">8000 Hz</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- System -->
+      <div class="section-card">
+        <div class="section-header">
+          <div class="section-icon">⚙️</div>
+          <h3>系统控制</h3>
+        </div>
+        <div class="section-body">
+          <div class="form-row">
+            <label>手电筒</label>
+            <div class="input-wrap">
+              <label class="switch">
+                <input type="checkbox" id="torch">
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>变焦</label>
+            <div class="input-wrap">
+              <input type="range" id="zoom" min="1" max="10" step="0.1" value="1" oninput="document.getElementById('zoomValue').textContent=this.value+'x'">
+              <span class="range-value" id="zoomValue">1x</span>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>自动启动</label>
+            <div class="input-wrap">
+              <label class="switch">
+                <input type="checkbox" id="autoStart">
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>开机自启</label>
+            <div class="input-wrap">
+              <label class="switch">
+                <input type="checkbox" id="bootAutoStart">
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>低功耗模式</label>
+            <div class="input-wrap">
+              <label class="switch">
+                <input type="checkbox" id="lowPowerMode">
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Action Bar -->
+    <div class="action-bar">
+      <div class="action-left">
+        <button class="btn warning" onclick="optimizeConfig()">⚡ 一键优化</button>
+        <button class="btn secondary" onclick="exportConfig()">📤 导出配置</button>
+        <button class="btn secondary" onclick="document.getElementById('importFile').click()">📥 导入配置</button>
+        <input type="file" id="importFile" accept="application/json" onchange="importConfig(this)">
+        <button class="btn secondary btn-sm" onclick="loadLogs()">📋 查看日志</button>
+      </div>
+      <div class="action-right">
+        <button class="btn secondary btn-sm" onclick="refresh()">🔄 刷新状态</button>
+      </div>
+    </div>
+
+    <!-- Logs -->
+    <div class="logs-card" id="logsCard" style="display:none;">
+      <div class="logs-header" onclick="toggleLogs()">
+        <div class="flex items-center gap-2">
+          <span id="logsArrow">▼</span>
+          <h3>运行日志</h3>
+        </div>
+        <div class="flex items-center gap-2">
+          <label class="flex items-center gap-1 text-muted">
+            <input type="checkbox" id="autoRefreshLogs" checked> 自动刷新
+          </label>
+          <button class="btn secondary btn-sm" onclick="event.stopPropagation(); loadLogs()">刷新</button>
+        </div>
+      </div>
+      <div class="logs-content open" id="logsContent">
+        <div class="logs-area" id="logsArea">点击刷新按钮加载日志...</div>
+      </div>
+    </div>
   </div>
-  
-  <h3>参数配置</h3>
-  <div class="row"><label>设备名</label><input id="deviceName" type="text"></div>
-  <div class="row"><label>显示设备名</label><input id="showDeviceName" type="checkbox"></div>
-  <div class="row"><label>用户名</label><input id="username" type="text" value="admin"></div>
-  <div class="row"><label>密码</label><input id="password" type="password"></div>
-  <div class="row"><label>RTSP 端口</label><input id="port" type="number" min="1024" max="65535" value="18554"></div>  <!-- 将默认端口从8554改为18554 -->
-  <div class="row"><label>码率</label><input id="bitrate" type="number" min="500000" step="100000" value="4000000"></div>
-  <div class="row"><label>帧率</label><input id="fps" type="number" min="1" max="60" value="30"></div>
-  <div class="row"><label>编码格式</label>
-    <select id="mimeType">
-      <option value="video/avc">H.264/AVC</option>
-      <option value="video/hevc">H.265/HEVC</option>
-    </select>
-  </div>
-  <div class="row"><label>编码器</label><select id="encoderName"></select></div>
-  <div class="row"><label>分辨率</label>
-    <select id="resolution">
-      <option value="1280x720">1280x720</option>
-      <option value="1920x1080">1920x1080</option>
-      <option value="640x480">640x480</option>
-    </select>
-  </div>
-  <div class="row"><label>主动推流</label><input id="pushEnabled" type="checkbox"></div>
-  <div class="row"><label>推流地址</label><input id="pushUrl" type="text" placeholder="rtsp://user:pass@host:port/live"></div>
-  <div class="row"><label>远程配置</label><input id="pushUseRemoteConfig" type="checkbox"></div>
-  <div class="row"><label>配置地址</label><input id="pushConfigUrl" type="text" placeholder="https://example.com/push.json"></div>
-  <div class="row"><label>启用音频</label><input id="audioEnabled" type="checkbox" checked></div>
-  <div class="row"><label>手电筒</label><input id="torch" type="checkbox"></div>
-  <div class="row"><label>时间水印</label><input id="watermark" type="checkbox" checked></div>
-  <div class="row"><label>变焦</label><input id="zoom" type="range" min="1" max="4" step="0.1" value="1"></div>
-  <button onclick="applyCfg()">应用</button>
+
+  <script>
+    // ===================== State =====================
+    let originalConfig = {};
+    let currentConfig = {};
+    let encoders = [];
+    let statsHistory = [];
+    let logsTimer = null;
+
+    // ===================== Utility =====================
+    function $(id) { return document.getElementById(id); }
+
+    function showToast(message, type = 'info') {
+      const container = $('toastContainer');
+      const toast = document.createElement('div');
+      toast.className = 'toast ' + type;
+      toast.textContent = message;
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateX(20px)';
+        setTimeout(() => toast.remove(), 300);
+      }, 3000);
+    }
+
+    function setLoading(show) {
+      $('loadingOverlay').classList.toggle('show', show);
+    }
+
+    function copyText(text) {
+      if (!text || text === '--') return;
+      navigator.clipboard.writeText(text).then(() => showToast('已复制到剪贴板', 'success')).catch(() => {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        showToast('已复制到剪贴板', 'success');
+      });
+    }
+
+    function syncBitrate(val) {
+      const mb = (val / 1000000).toFixed(1);
+      $('bitrateValue').textContent = mb + 'M';
+    }
+
+    function parseResolution(str) {
+      const [w, h] = (str || '').split('x').map(x => parseInt(x, 10));
+      return { width: w || 1280, height: h || 720 };
+    }
+
+    // ===================== Config getters/setters =====================
+    function getFormConfig() {
+      const res = parseResolution($('resolution').value);
+      return {
+        width: res.width,
+        height: res.height,
+        fps: parseInt($('fpsNum').value, 10) || 30,
+        bitrate: parseInt($('bitrateRange').value, 10) || 4000000,
+        mimeType: $('mimeType').value,
+        encoderName: $('encoderName').value || null,
+        iFrameInterval: parseInt($('iFrameInterval').value, 10) || 1,
+        bitrateMode: $('bitrateMode').value,
+        noiseReduction: $('noiseReduction').value,
+        videoStabilization: $('videoStabilization').checked,
+        edgeEnhancement: $('edgeEnhancement').checked,
+        exposureCompensation: parseFloat($('exposureCompensation').value) || 0,
+        watermark: $('watermark').checked,
+        showDeviceName: $('showDeviceName').checked,
+        deviceName: $('deviceName').value || '',
+        watermarkPosition: $('watermarkPosition').value,
+        watermarkOpacity: parseInt($('watermarkOpacity').value, 10) || 180,
+        port: parseInt($('port').value, 10) || 18554,
+        username: $('username').value || 'admin',
+        password: $('password').value || '',
+        pushEnabled: $('pushEnabled').checked,
+        pushUrl: $('pushUrl').value || '',
+        pushUseRemoteConfig: $('pushUseRemoteConfig').checked,
+        pushConfigUrl: $('pushConfigUrl').value || '',
+        audioEnabled: $('audioEnabled').checked,
+        sampleRate: parseInt($('sampleRate').value, 10) || 44100,
+        torch: $('torch').checked,
+        zoom: parseFloat($('zoom').value) || 1,
+        autoStart: $('autoStart').checked,
+        bootAutoStart: $('bootAutoStart').checked,
+        lowPowerMode: $('lowPowerMode').checked,
+      };
+    }
+
+    function setFormConfig(cfg) {
+      const res = (cfg.width && cfg.height) ? `${cfg.width}x${cfg.height}` : '1280x720';
+      if ($('resolution').querySelector(`option[value="${res}"]`)) {
+        $('resolution').value = res;
+      } else {
+        // If resolution not in list, add it
+        const opt = document.createElement('option');
+        opt.value = res; opt.textContent = res;
+        $('resolution').appendChild(opt);
+        $('resolution').value = res;
+      }
+      $('fpsNum').value = cfg.fps ?? 30;
+      $('fpsRange').value = cfg.fps ?? 30;
+      $('bitrateRange').value = cfg.bitrate ?? 4000000;
+      syncBitrate(cfg.bitrate ?? 4000000);
+      $('mimeType').value = cfg.mimeType || 'video/avc';
+      $('encoderName').dataset.current = cfg.encoderName || '';
+      $('iFrameInterval').value = cfg.iFrameInterval ?? 1;
+      $('bitrateMode').value = cfg.bitrateMode || 'cq';
+      $('noiseReduction').value = cfg.noiseReduction || 'high_quality';
+      $('videoStabilization').checked = !!cfg.videoStabilization;
+      $('edgeEnhancement').checked = !!cfg.edgeEnhancement;
+      $('exposureCompensation').value = cfg.exposureCompensation ?? 0;
+      $('exposureValue').textContent = (cfg.exposureCompensation > 0 ? '+' : '') + (cfg.exposureCompensation ?? 0);
+      $('watermark').checked = cfg.watermark !== false;
+      $('showDeviceName').checked = !!cfg.showDeviceName;
+      $('deviceName').value = cfg.deviceName || '';
+      $('watermarkPosition').value = cfg.watermarkPosition || 'bottom';
+      $('watermarkOpacity').value = cfg.watermarkOpacity ?? 180;
+      $('alphaValue').textContent = (cfg.watermarkOpacity ?? 180).toString();
+      $('port').value = cfg.port ?? 18554;
+      $('username').value = cfg.username || 'admin';
+      $('password').value = cfg.password || '';
+      $('pushEnabled').checked = !!cfg.pushEnabled;
+      $('pushUrl').value = cfg.pushUrl || '';
+      $('pushUseRemoteConfig').checked = !!cfg.pushUseRemoteConfig;
+      $('pushConfigUrl').value = cfg.pushConfigUrl || '';
+      $('audioEnabled').checked = cfg.audioEnabled !== false;
+      $('sampleRate').value = cfg.sampleRate || 44100;
+      $('torch').checked = !!cfg.torch;
+      $('zoom').value = cfg.zoom ?? 1;
+      $('zoomValue').textContent = (cfg.zoom ?? 1) + 'x';
+      $('autoStart').checked = !!cfg.autoStart;
+      $('bootAutoStart').checked = !!cfg.bootAutoStart;
+      $('lowPowerMode').checked = !!cfg.lowPowerMode;
+    }
+
+    function configsEqual(a, b) {
+      const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+      for (const k of keys) {
+        if (k === 'encoderName') {
+          const av = a[k] === null ? '' : (a[k] || '');
+          const bv = b[k] === null ? '' : (b[k] || '');
+          if (av !== bv) return false;
+          continue;
+        }
+        if ((a[k] ?? '') !== (b[k] ?? '')) return false;
+      }
+      return true;
+    }
+
+    function checkModified() {
+      currentConfig = getFormConfig();
+      const isMod = !configsEqual(currentConfig, originalConfig);
+      $('modifiedBadge').classList.toggle('show', isMod);
+      $('btnApply').disabled = !isMod;
+    }
+
+    // Attach listeners
+    function attachChangeListeners() {
+      const inputs = document.querySelectorAll('input, select');
+      inputs.forEach(el => {
+        el.addEventListener('change', checkModified);
+        if (el.type === 'range') el.addEventListener('input', checkModified);
+      });
+    }
+
+    // ===================== API =====================
+    async function loadEncoders() {
+      try {
+        const res = await fetch('/api/encoders');
+        encoders = await res.json();
+        const sel = $('encoderName');
+        const current = sel.dataset.current || '';
+        sel.innerHTML = '<option value="">自动选择</option>';
+        encoders.forEach(enc => {
+          const opt = document.createElement('option');
+          opt.value = enc.name;
+          opt.textContent = enc.displayName || enc.name;
+          if (enc.name === current) opt.selected = true;
+          sel.appendChild(opt);
+        });
+      } catch (e) {
+        console.error('加载编码器失败', e);
+      }
+    }
+
+    async function refresh() {
+      setLoading(true);
+      try {
+        const cfg = await fetch('/api/config').then(r => r.json());
+        originalConfig = {
+          width: cfg.width, height: cfg.height,
+          fps: cfg.fps, bitrate: cfg.bitrate,
+          mimeType: cfg.mimeType,
+          encoderName: cfg.encoderName,
+          iFrameInterval: cfg.iFrameInterval,
+          bitrateMode: cfg.bitrateMode,
+          noiseReduction: cfg.noiseReduction,
+          videoStabilization: cfg.videoStabilization,
+          edgeEnhancement: cfg.edgeEnhancement,
+          exposureCompensation: cfg.exposureCompensation,
+          watermark: cfg.watermark,
+          showDeviceName: cfg.showDeviceName,
+          deviceName: cfg.deviceName,
+          watermarkPosition: cfg.watermarkPosition,
+          watermarkOpacity: cfg.watermarkOpacity,
+          port: cfg.port,
+          username: cfg.username,
+          password: cfg.password,
+          pushEnabled: cfg.pushEnabled,
+          pushUrl: cfg.pushUrl,
+          pushUseRemoteConfig: cfg.pushUseRemoteConfig,
+          pushConfigUrl: cfg.pushConfigUrl,
+          audioEnabled: cfg.audioEnabled,
+          sampleRate: cfg.sampleRate,
+          torch: cfg.torch,
+          zoom: cfg.zoom,
+          autoStart: cfg.autoStart ?? false,
+          bootAutoStart: cfg.bootAutoStart ?? false,
+          lowPowerMode: cfg.lowPowerMode,
+        };
+        setFormConfig(originalConfig);
+        currentConfig = getFormConfig();
+        checkModified();
+
+        // Addresses
+        if (cfg.rtsp) {
+          $('rtspText').textContent = cfg.rtsp;
+        }
+        if (cfg.web) {
+          $('webText').textContent = cfg.web;
+        }
+
+        await loadEncoders();
+        showToast('配置已刷新', 'success');
+      } catch (e) {
+        console.error(e);
+        showToast('刷新配置失败: ' + e.message, 'error');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    async function applyCfg() {
+      const payload = getFormConfig();
+      setLoading(true);
+      try {
+        const res = await fetch('/api/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json().catch(() => ({}));
+        originalConfig = { ...payload };
+        checkModified();
+        showToast('配置应用成功', 'success');
+        // Refresh addresses in case port changed
+        await refresh();
+      } catch (e) {
+        console.error(e);
+        showToast('应用配置失败: ' + e.message, 'error');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    async function refreshStats() {
+      try {
+        const s = await fetch('/api/stats').then(r => r.json());
+        statsHistory.push(s);
+        if (statsHistory.length > 10) statsHistory.shift();
+
+        $('statFps').textContent = s.currentFps || 0;
+        $('statCpu').textContent = (s.cpuUsage || 0).toFixed(1);
+        $('statTx').textContent = (s.networkTxKbps || 0).toFixed(1);
+        $('statRx').textContent = (s.networkRxKbps || 0).toFixed(1);
+        $('statCpuTemp').textContent = (s.cpuTemp || 0).toFixed(1);
+        $('statBatteryTemp').textContent = (s.batteryTemp || 0).toFixed(1);
+        $('statBatteryLevel').textContent = s.batteryLevel || 0;
+
+        if (s.encoderName) {
+          $('statEncoder').textContent = s.encoderName;
+          $('statEncoderSub').textContent = `${s.width || '--'}×${s.height || '--'} @ ${Math.floor((s.bitrate || 0) / 1000)} Kbps`;
+        } else {
+          $('statEncoder').textContent = '未启动';
+          $('statEncoderSub').textContent = '--';
+        }
+
+        // Color alerts
+        $('statFpsCard').className = 'stat-card' + ((s.currentFps || 0) < 10 ? ' danger' : '');
+        $('statCpuCard').className = 'stat-card' + ((s.cpuUsage || 0) > 80 ? ' warning' : '');
+        $('statCpuTempCard').className = 'stat-card' + ((s.cpuTemp || 0) > 65 ? ' warning' : ((s.cpuTemp || 0) > 75 ? ' danger' : ''));
+        $('statBatteryTempCard').className = 'stat-card' + ((s.batteryTemp || 0) > 45 ? ' warning' : '');
+        const bat = s.batteryLevel || 0;
+        $('statBatteryLevelCard').className = 'stat-card' + (bat < 20 ? ' danger' : (bat < 40 ? ' warning' : ' success'));
+
+        updateNetworkQuality(s);
+      } catch (e) {
+        console.error('刷新统计失败', e);
+      }
+    }
+
+    function updateNetworkQuality(s) {
+      const tx = s.networkTxKbps || 0;
+      const rx = s.networkRxKbps || 0;
+      const rtt = s.rtt || 0;
+      let level = 4; // excellent
+      let text = '网络优良';
+      let cls = '';
+      if (rtt > 300 || tx < 100) {
+        level = 1; text = '网络较差'; cls = 'poor';
+      } else if (rtt > 150 || tx < 500) {
+        level = 2; text = '网络一般'; cls = 'fair';
+      } else if (rtt > 80 || tx < 1500) {
+        level = 3; text = '网络良好'; cls = '';
+      }
+      const q = $('netQuality');
+      q.className = 'net-quality ' + cls;
+      $('netQualityText').textContent = text;
+      document.querySelectorAll('.net-bar').forEach((bar, i) => {
+        bar.classList.toggle('active', i < level);
+      });
+    }
+
+    async function loadLogs() {
+      const area = $('logsArea');
+      $('logsCard').style.display = '';
+      try {
+        const res = await fetch('/api/logs');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const text = await res.text();
+        if (!text.trim()) {
+          area.textContent = '暂无日志';
+          return;
+        }
+        const lines = text.split('\n');
+        area.innerHTML = lines.map(line => {
+          if (!line.trim()) return '';
+          let cls = '';
+          if (/\b(ERR|ERROR|FATAL)\b/i.test(line)) cls = 'log-err';
+          else if (/\bWARN\b/i.test(line)) cls = 'log-warn';
+          else if (/\b(INFO|DEBUG)\b/i.test(line)) cls = 'log-info';
+          const timeMatch = line.match(/^\[(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}[\.,]?\d*)\]/);
+          let time = '';
+          let msg = line;
+          if (timeMatch) {
+            time = `<span class="log-time">${timeMatch[1]}</span>`;
+            msg = line.slice(timeMatch[0].length);
+          }
+          return `<div class="log-entry ${cls}">${time}${escapeHtml(msg)}</div>`;
+        }).join('');
+        area.scrollTop = area.scrollHeight;
+      } catch (e) {
+        area.textContent = '加载日志失败: ' + e.message;
+      }
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    function toggleLogs() {
+      $('logsContent').classList.toggle('open');
+      $('logsArrow').textContent = $('logsContent').classList.contains('open') ? '▼' : '▶';
+    }
+
+    // ===================== Import / Export =====================
+    function exportConfig() {
+      const cfg = getFormConfig();
+      const blob = new Blob([JSON.stringify(cfg, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'qnvr-config-' + new Date().toISOString().slice(0, 19).replace(/:/g, '-') + '.json';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast('配置已导出', 'success');
+    }
+
+    function importConfig(input) {
+      const file = input.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const cfg = JSON.parse(reader.result);
+          setFormConfig(cfg);
+          checkModified();
+          showToast('配置已导入，请检查并应用', 'success');
+        } catch (e) {
+          showToast('导入失败：无效JSON', 'error');
+        }
+      };
+      reader.readAsText(file);
+      input.value = '';
+    }
+
+    // ===================== Optimize =====================
+    function optimizeConfig() {
+      const s = statsHistory.length ? statsHistory[statsHistory.length - 1] : {};
+      const tx = s.networkTxKbps || 5000;
+      const cpu = s.cpuUsage || 30;
+      const temp = s.cpuTemp || 40;
+
+      const cfg = getFormConfig();
+      let changes = [];
+
+      if (tx > 5000 && cpu < 50 && temp < 55) {
+        cfg.width = 1920; cfg.height = 1080;
+        cfg.fps = 30;
+        cfg.bitrate = 4000000;
+        cfg.mimeType = 'video/hevc';
+        changes.push('推荐设置：1080P / 30fps / 4Mbps / H.265');
+      } else if (tx > 2000 && cpu < 70) {
+        cfg.width = 1920; cfg.height = 1080;
+        cfg.fps = 25;
+        cfg.bitrate = 2500000;
+        cfg.mimeType = 'video/avc';
+        changes.push('推荐设置：1080P / 25fps / 2.5Mbps / H.264');
+      } else if (tx > 800) {
+        cfg.width = 1280; cfg.height = 720;
+        cfg.fps = 25;
+        cfg.bitrate = 1500000;
+        cfg.mimeType = 'video/avc';
+        changes.push('推荐设置：720P / 25fps / 1.5Mbps / H.264');
+      } else {
+        cfg.width = 1280; cfg.height = 720;
+        cfg.fps = 20;
+        cfg.bitrate = 800000;
+        cfg.mimeType = 'video/avc';
+        cfg.noiseReduction = 'fast';
+        changes.push('推荐设置：720P / 20fps / 0.8Mbps / H.264 / 轻度降噪');
+      }
+
+      if (cpu > 75 || temp > 60) {
+        cfg.width = 1280; cfg.height = 720;
+        cfg.fps = Math.min(cfg.fps, 20);
+        cfg.bitrate = Math.min(cfg.bitrate, 1500000);
+        cfg.lowPowerMode = true;
+        changes.push('检测到高负载/高温，已降配并开启低功耗模式');
+      }
+
+      if (tx < 300) {
+        cfg.pushEnabled = false;
+        changes.push('网络较差，已建议关闭主动推流');
+      }
+
+      cfg.noiseReduction = cfg.noiseReduction || 'high_quality';
+
+      setFormConfig(cfg);
+      checkModified();
+      showToast(changes.join('；'), 'info');
+    }
+
+    // ===================== Theme =====================
+    $('themeToggle').addEventListener('click', () => {
+      const html = document.documentElement;
+      const next = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+      html.setAttribute('data-theme', next);
+      localStorage.setItem('qnvr-theme', next);
+    });
+
+    // ===================== Init =====================
+    function startPreview() {
+      const img = $('mjpeg');
+      img.src = '/stream.mjpg';
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      const savedTheme = localStorage.getItem('qnvr-theme');
+      if (savedTheme) document.documentElement.setAttribute('data-theme', savedTheme);
+      attachChangeListeners();
+      refresh().then(() => {
+        startPreview();
+      });
+      setInterval(refreshStats, 2000);
+      // Auto refresh logs if enabled
+      setInterval(() => {
+        if ($('autoRefreshLogs') && $('autoRefreshLogs').checked && $('logsCard').style.display !== 'none' && $('logsContent').classList.contains('open')) {
+          loadLogs();
+        }
+      }, 5000);
+    });
+  </script>
 </body>
 </html>

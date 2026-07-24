@@ -92,6 +92,8 @@ class RecorderService : LifecycleService(), ConfigApplier, SharedPreferences.OnS
     camera.setZoom(1.0f)
     camera.setDeviceName(cfg.getDeviceName())
     camera.setShowDeviceName(cfg.isShowDeviceName())
+    camera.setWatermarkPosition(cfg.getWatermarkPosition())
+    camera.setWatermarkOpacity(cfg.getWatermarkOpacity())
     camera.setResolution(cfg.getWidth(), cfg.getHeight())
     
     try { 
@@ -110,6 +112,7 @@ class RecorderService : LifecycleService(), ConfigApplier, SharedPreferences.OnS
             cfg.isAudioEnabled()
         )
         rtspServer.start()
+        rtspServer.setLowPowerModeEnabled(cfg.isLowPowerMode())
         applyPushConfig(cfg.isPushEnabled(), cfg.getPushUrl(), cfg.isPushUseRemoteConfig(), cfg.getPushConfigUrl())
         
         val actualEncoderName = rtspServer.getActualEncoderName() ?: encoderName
@@ -252,6 +255,7 @@ class RecorderService : LifecycleService(), ConfigApplier, SharedPreferences.OnS
           cfg.isAudioEnabled()
       )
       rtspServer.start()
+      rtspServer.setLowPowerModeEnabled(cfg.isLowPowerMode())
       applyPushConfig(cfg.isPushEnabled(), cfg.getPushUrl(), cfg.isPushUseRemoteConfig(), cfg.getPushConfigUrl())
     } catch (e: Exception) { Sentry.captureException(e) }
   }
@@ -301,10 +305,13 @@ class RecorderService : LifecycleService(), ConfigApplier, SharedPreferences.OnS
           }
           "deviceName" -> applyDeviceName(cfg.getDeviceName())
           "showDeviceName" -> applyShowDeviceName(cfg.isShowDeviceName())
+          "watermarkPosition" -> try { camera.setWatermarkPosition(cfg.getWatermarkPosition()) } catch (_: Exception) {}
+          "watermarkOpacity" -> try { camera.setWatermarkOpacity(cfg.getWatermarkOpacity()) } catch (_: Exception) {}
           "username", "password" -> applyCredentials(cfg.getUsername(), cfg.getPassword())
           "pushEnabled", "pushUrl", "pushUseRemoteConfig", "pushConfigUrl" -> {
               applyPushConfig(cfg.isPushEnabled(), cfg.getPushUrl(), cfg.isPushUseRemoteConfig(), cfg.getPushConfigUrl())
           }
+          "lowPowerMode" -> try { rtspServer.setLowPowerModeEnabled(cfg.isLowPowerMode()) } catch (_: Exception) {}
       }
   }
 
